@@ -23,6 +23,7 @@ public final class Announcement {
     public final long enqueuedAt;
     public final String callbackUrl;  // optional: POSTed to when this finishes/fails
     public final int volume;          // 0-100, -1 = leave as-is
+    public final String engine;       // optional: registered engine id to try first (falls through to the default chain, then device, if it fails)
 
     private Announcement(Builder b) {
         this.id = b.id;
@@ -36,6 +37,7 @@ public final class Announcement {
         this.enqueuedAt = System.currentTimeMillis();
         this.callbackUrl = b.callbackUrl;
         this.volume = b.volume;
+        this.engine = b.engine;
     }
 
     /** Coarse key used for duplicate suppression: same thing, same category. */
@@ -59,6 +61,7 @@ public final class Announcement {
             o.put("category", category);
             o.put("interruptible", interruptible);
             o.put("duck", duck);
+            o.put("engine", engine == null ? JSONObject.NULL : engine);
             o.put("enqueuedAt", enqueuedAt);
             o.put("ageMs", System.currentTimeMillis() - enqueuedAt);
         } catch (JSONException ignored) {
@@ -81,6 +84,7 @@ public final class Announcement {
         b.category = body.optString("category", "general");
         b.callbackUrl = body.optString("callback", null);
         b.volume = body.optInt("volume", -1);
+        b.engine = body.optString("engine", null);
         return b.build();
     }
 
@@ -95,6 +99,7 @@ public final class Announcement {
         private String category = "general";
         private String callbackUrl;
         private int volume = -1;
+        private String engine;
 
         public Builder text(String v) { this.text = v; return this; }
         public Builder url(String v) { this.url = v; return this; }
@@ -105,6 +110,7 @@ public final class Announcement {
         public Builder category(String v) { this.category = v; return this; }
         public Builder callbackUrl(String v) { this.callbackUrl = v; return this; }
         public Builder volume(int v) { this.volume = v; return this; }
+        public Builder engine(String v) { this.engine = v; return this; }
 
         public Announcement build() {
             if ((text == null || text.trim().isEmpty()) && (url == null || url.trim().isEmpty())) {

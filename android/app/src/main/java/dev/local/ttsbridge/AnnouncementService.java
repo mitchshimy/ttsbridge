@@ -29,6 +29,7 @@ import java.util.concurrent.Executors;
 import dev.local.ttsbridge.core.Announcement;
 import dev.local.ttsbridge.core.AnnouncementEngine;
 import dev.local.ttsbridge.core.AnnouncementQueue;
+import dev.local.ttsbridge.core.EngineConfig;
 import dev.local.ttsbridge.core.EngineState;
 import dev.local.ttsbridge.core.Priority;
 import dev.local.ttsbridge.http.ControlHttpServer;
@@ -327,6 +328,41 @@ public class AnnouncementService extends Service {
             return new ControlHttpServer.Response(200, new JSONObject()
                     .put("url", webhookUrl == null ? JSONObject.NULL : webhookUrl)
                     .put("registered", webhookUrl != null));
+        });
+
+        httpServer.route("GET", "/engines", (body, query) -> {
+            JSONArray arr = new JSONArray();
+            for (EngineConfig cfg : engine.registry().getAll()) arr.put(cfg.toJson());
+            JSONArray chain = new JSONArray(engine.registry().getDefaultChain());
+            return new ControlHttpServer.Response(200, new JSONObject()
+                    .put("engines", arr)
+                    .put("defaultChain", chain));
+        });
+
+        httpServer.route("POST", "/engines", (body, query) -> {
+            try {
+                EngineConfig cfg = EngineConfig.fromJson(body);
+                engine.registry().upsert(cfg);
+                return new ControlHttpServer.Response(200, cfg.toJson());
+            } catch (IllegalArgumentException e) {
+                return new ControlHttpServer.Response(400, ControlHttpServer.errorJson(e.getMessage()));
+            }
+        });
+
+        httpServer.route("POST", "/engines/remove", (body, query) -> {
+            String id = body.optString("id", null);
+            boolean removed = id != null && engine.registry().remove(id);
+            return new ControlHttpServer.Response(200, new JSONObject().put("removed", removed));
+        });
+
+        httpServer.route("POST", "/engines/default", (body, query) -> {
+            JSONArray chainJson = body.optJSONArray("chain");
+            List<String> chain = new java.util.ArrayList<>();
+            if (chainJson != null) {
+                for (int i = 0; i < chainJson.length(); i++) chain.add(chainJson.optString(i));
+            }
+            engine.registry().setDefaultChain(chain);
+            return new ControlHttpServer.Response(200, new JSONObject().put("defaultChain", new JSONArray(chain)));
         });
 
         httpServer.start();
