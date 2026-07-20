@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to TTS Bridge",
+        "description": "Enter the IP address of the Android TV running the TTS Bridge app.",
+        "data": {
+          "host": "Host (IP address)",
+          "port": "Port"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure TTS Bridge",
+        "description": "Update the IP address or port for this device.",
+        "data": {
+          "host": "Host (IP address)",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the TTS Bridge at that address. Check the IP/port and that the app is running.",
+      "unknown": "Unexpected error - check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This TTS Bridge is already configured.",
+      "reconfigure_successful": "Reconfiguration successful."
+    }
+  }
+}

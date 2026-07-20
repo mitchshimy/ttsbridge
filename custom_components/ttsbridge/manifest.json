@@ -1,0 +1,11 @@
+{
+  "domain": "ttsbridge",
+  "name": "TTS Bridge",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/yourusername/ttsbridge",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/yourusername/ttsbridge/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}
