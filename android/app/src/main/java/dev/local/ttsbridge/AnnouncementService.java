@@ -405,6 +405,19 @@ public class AnnouncementService extends Service {
             return new ControlHttpServer.Response(200, new JSONObject().put("defaultChain", new JSONArray(chain)));
         });
 
+        httpServer.route("GET", "/audio-focus-strategy", (body, query) ->
+                new ControlHttpServer.Response(200, new JSONObject().put("strategy", engine.focus().getStrategy())));
+
+        httpServer.route("POST", "/audio-focus-strategy", (body, query) -> {
+            String strategy = body.optString("strategy", null);
+            try {
+                engine.focus().setStrategy(strategy);
+            } catch (IllegalArgumentException e) {
+                return new ControlHttpServer.Response(400, ControlHttpServer.errorJson(e.getMessage()));
+            }
+            return new ControlHttpServer.Response(200, new JSONObject().put("strategy", strategy));
+        });
+
         httpServer.start();
     }
 
