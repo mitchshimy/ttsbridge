@@ -1,0 +1,57 @@
+announce:
+  name: Announce
+  description: >-
+    Play an announcement on a TTS Bridge device. Provide message, url, or
+    both (url plays; message is kept as a fallback/label). At least one is
+    required.
+  target:
+    entity:
+      domain: notify
+      integration: ttsbridge
+  fields:
+    message:
+      name: Message
+      description: Text to speak via the bridge's own engine chain (device TTS by default).
+      example: "Someone's at the door"
+      selector:
+        text:
+    url:
+      name: Audio URL
+      description: >-
+        A pre-rendered audio URL (e.g. from Home Assistant's own TTS
+        engines) to play directly, bypassing the bridge's engine selection.
+      example: "http://192.168.2.104:8123/api/tts_proxy/abc123.mp3"
+      selector:
+        text:
+    priority:
+      name: Priority
+      description: Emergency always interrupts whatever's currently playing.
+      default: normal
+      selector:
+        select:
+          options:
+            - emergency
+            - high
+            - normal
+            - low
+    category:
+      name: Category
+      description: Used for duplicate-suppression and staleness rules (e.g. "motion", "doorbell").
+      default: general
+      selector:
+        text:
+    engine:
+      name: Engine
+      description: >-
+        Registered engine id to try first (only relevant when no url is
+        given - falls through to the default chain, then device, on failure).
+      selector:
+        text:
+    speak_timeout:
+      name: Playback timeout (ms)
+      description: Hard ceiling on how long this announcement is allowed to play. Omit to use the bridge's default.
+      selector:
+        number:
+          min: 1000
+          max: 120000
+          unit_of_measurement: ms
