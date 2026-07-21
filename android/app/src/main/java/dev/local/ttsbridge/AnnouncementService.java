@@ -5,11 +5,17 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.AudioManager;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.util.Log;
 
@@ -68,6 +74,9 @@ public class AnnouncementService extends Service {
     private java.util.concurrent.ScheduledExecutorService heartbeatExecutor;
     private Thread workerThread;
     private volatile boolean running = false;
+    private BroadcastReceiver volumeChangeReceiver;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable debouncedVolumePush = this::pushWebhookUpdate;
 
     private volatile Announcement current = null;
     private volatile EngineState state = EngineState.IDLE;
@@ -97,6 +106,37 @@ public class AnnouncementService extends Service {
         startWorker();
         startHttpServer();
         startHeartbeat();
+        startVolumeChangeWatcher();
+    }
+
+    /**
+     * Volume changed via /volume or during playback pushes on its own (see
+     * the relevant call sites), but a change from the PHYSICAL REMOTE or any
+     * other app happens entirely outside our code - Android only tells us
+     * about it via this system-wide broadcast. Without this, remote-button
+     * volume changes would only show up on HA's side after the next 60s
+     * heartbeat or 30s poll, unlike everything else this app controls
+     * directly. Debounced because holding the volume button down fires many
+     * rapid VOLUME_CHANGED_ACTION broadcasts - we only want one push after
+     * they stop, not one push per tick.
+     */
+    private void startVolumeChangeWatcher() {
+        volumeChangeReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                // AudioManager.VOLUME_CHANGED_ACTION / EXTRA_VOLUME_STREAM_TYPE are
+                // real, stable broadcast constants going back to early Android, but
+                // they're excluded from the public SDK stub jar (marked
+                // @UnsupportedAppUsage in AOSP) - the compiler can't see them as
+                // symbols even though the runtime values are correct, so these
+                // have to stay as string literals rather than symbolic references.
+                int streamType = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_TYPE", -1);
+                if (streamType != AudioManager.STREAM_MUSIC) return;
+                mainHandler.removeCallbacks(debouncedVolumePush);
+                mainHandler.postDelayed(debouncedVolumePush, 400);
+            }
+        };
+        registerReceiver(volumeChangeReceiver, new IntentFilter("android.media.VOLUME_CHANGED_ACTION"));
     }
 
     /**
@@ -469,6 +509,14 @@ public class AnnouncementService extends Service {
         if (engine != null) engine.release();
         if (callbackExecutor != null) callbackExecutor.shutdownNow();
         if (heartbeatExecutor != null) heartbeatExecutor.shutdownNow();
+        if (volumeChangeReceiver != null) {
+            try {
+                unregisterReceiver(volumeChangeReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // already unregistered / never registered - harmless
+            }
+        }
+        mainHandler.removeCallbacks(debouncedVolumePush);
         releaseWakeLock();
         super.onDestroy();
     }
