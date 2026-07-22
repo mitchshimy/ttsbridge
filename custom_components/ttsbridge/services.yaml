@@ -43,8 +43,13 @@ announce:
     engine:
       name: Engine
       description: >-
-        Registered engine id to try first (only relevant when no url is
-        given - falls through to the default chain, then device, on failure).
+        Either a bridge-native engine id (e.g. "device", or anything
+        registered via POST /engines - only relevant when no url is given,
+        falls through to the default chain then device on failure), OR a
+        real Home Assistant TTS entity id prefixed "tts." (e.g.
+        "tts.piper", "tts.google_translate_en_com") to render the message
+        through that HA-side engine and play the result directly,
+        bypassing the bridge's own engine chain entirely.
       selector:
         text:
     speak_timeout:

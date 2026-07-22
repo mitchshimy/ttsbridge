@@ -16,22 +16,45 @@ overloading one:
    - message OR url (at least one required, enforced at the schema level
    via cv.has_at_least_one_key so a malformed call fails instantly in HA
    rather than after a round trip to the device), priority, category,
-   engine, speak_timeout. Both fields can be present together (url wins
-   for playback; message is still recorded as a fallback/label on the
-   bridge, exactly like BridgeApiClient.announce_audio's text_fallback
-   already supports) - not mutually exclusive.
+   engine, speak_timeout. Both message and url can be present together
+   (url wins for playback; message is still recorded as a fallback/label
+   on the bridge, exactly like BridgeApiClient.announce_audio's
+   text_fallback already supports) - not mutually exclusive.
+
+The `engine` field does double duty, disambiguated by a "tts." prefix
+check rather than a second field (an HA entity selector scoped to the tts
+domain and free-text bridge-native ids can't coexist in one schema field,
+so this was a deliberate either/or - free text won, since bridge-native
+ids are close to vestigial for real-world engine rosters where Wyoming/
+cloud engines can't run as remote_http anyway):
+
+ - "device", or any id registered via POST /engines (bridge-native,
+   resolved by AnnouncementEngine's own EngineRegistry/fallback chain) ->
+   passed straight through to announce_text(engine=...).
+ - "tts.<entity_id>" (a real Home Assistant TTS entity - Piper, Google
+   Translate, Homeway Sage, etc.) -> resolved HERE via HA's media_source
+   mechanism into a URL, then handed to announce_audio(). This is the
+   in-process equivalent of the Director script's get_tts_url REST call -
+   confirmed against real HA source (generate_media_source_id's actual
+   signature) and empirically verified against tts.piper,
+   tts.google_translate_en_com, and tts.homeway_sage_free_text_to_speech
+   specifically (not just genuinely-different engines from docs examples)
+   before this was built.
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 import voluptuous as vol
 
+from homeassistant.components import media_source
 from homeassistant.components.notify import NotifyEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -51,6 +74,7 @@ ATTR_ENGINE = "engine"
 ATTR_SPEAK_TIMEOUT = "speak_timeout"
 
 SERVICE_ANNOUNCE = "announce"
+HA_TTS_ENTITY_PREFIX = "tts."
 
 ANNOUNCE_SCHEMA = vol.All(
     cv.make_entity_service_schema(
@@ -114,6 +138,9 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
         engine = kwargs.get(ATTR_ENGINE)
         timeout_ms = kwargs.get(ATTR_SPEAK_TIMEOUT)
 
+        if not url and message and engine and engine.startswith(HA_TTS_ENTITY_PREFIX):
+            url = await self._async_resolve_ha_tts_url(engine, message)
+
         if url:
             return await self._bridge.async_announce_audio(
                 url,
@@ -129,3 +156,17 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             engine=engine,
             timeout_ms=timeout_ms,
         )
+
+    async def _async_resolve_ha_tts_url(self, engine_entity_id: str, message: str) -> str:
+        """Render `message` through an installed HA TTS entity, in-process - no
+        token, no network round-trip to ourselves, unlike the REST
+        /api/tts_get_url equivalent this replaces."""
+        identifier = f"{engine_entity_id}?{urlencode({'message': message})}"
+        media_content_id = media_source.generate_media_source_id("tts", identifier)
+        try:
+            play_media = await media_source.async_resolve_media(self.hass, media_content_id, None)
+        except media_source.Unresolvable as err:
+            raise HomeAssistantError(
+                f"Could not render message through {engine_entity_id}: {err}"
+            ) from err
+        return play_media.url
