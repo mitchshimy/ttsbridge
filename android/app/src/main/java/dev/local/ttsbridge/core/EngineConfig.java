@@ -50,6 +50,15 @@ public final class EngineConfig {
         if ("device".equalsIgnoreCase(id)) {
             throw new IllegalArgumentException("'device' is reserved for the built-in on-device engine");
         }
+        if (id.toLowerCase().startsWith("tts.")) {
+            // The HA custom_component's notify.py treats any engine value
+            // starting with "tts." as a Home Assistant TTS entity id to
+            // resolve via media_source, not a bridge-native engine - a
+            // registration here with that prefix would never actually be
+            // reachable, silently misrouted on the HA side instead.
+            throw new IllegalArgumentException(
+                    "engine ids starting with 'tts.' are reserved for Home Assistant TTS entities");
+        }
         String type = o.optString("type", TYPE_REMOTE_HTTP);
         if (!TYPE_REMOTE_HTTP.equals(type)) {
             throw new IllegalArgumentException("unsupported engine type: " + type);
