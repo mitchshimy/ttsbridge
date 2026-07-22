@@ -142,13 +142,16 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             url = await self._async_resolve_ha_tts_url(engine, message)
 
         if url:
-            return await self._bridge.async_announce_audio(
+            _LOGGER.info("Calling announce_audio with url=%s", url)
+            result = await self._bridge.async_announce_audio(
                 url,
                 text_fallback=message,
                 priority=priority,
                 category=category,
                 timeout_ms=timeout_ms,
             )
+            _LOGGER.info("announce_audio result: %s", result)
+            return result
         return await self._bridge.async_announce_text(
             message,
             priority=priority,
@@ -169,4 +172,11 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             raise HomeAssistantError(
                 f"Could not render message through {engine_entity_id}: {err}"
             ) from err
+        _LOGGER.info(
+            "Resolved %s via %s -> %s (mime=%s)",
+            engine_entity_id,
+            media_content_id,
+            play_media.url,
+            play_media.mime_type,
+        )
         return play_media.url
