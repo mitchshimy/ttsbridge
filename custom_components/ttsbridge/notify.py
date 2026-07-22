@@ -21,25 +21,43 @@ overloading one:
    on the bridge, exactly like BridgeApiClient.announce_audio's
    text_fallback already supports) - not mutually exclusive.
 
-The `engine` field does double duty, disambiguated by a "tts." prefix
-check rather than a second field (an HA entity selector scoped to the tts
-domain and free-text bridge-native ids can't coexist in one schema field,
-so this was a deliberate either/or - free text won, since bridge-native
-ids are close to vestigial for real-world engine rosters where Wyoming/
-cloud engines can't run as remote_http anyway):
+The engine can be reached two ways, kept as two separate fields rather
+than overloading one - an HA entity selector scoped to the tts domain
+(the thing that gives you the tts.speak-style dropdown) and free text
+can't coexist in a single schema field, that's a hard HA constraint, not
+a style choice:
 
- - "device", or any id registered via POST /engines (bridge-native,
-   resolved by AnnouncementEngine's own EngineRegistry/fallback chain) ->
-   passed straight through to announce_text(engine=...).
- - "tts.<entity_id>" (a real Home Assistant TTS entity - Piper, Google
-   Translate, Homeway Sage, etc.) -> resolved HERE via HA's media_source
-   mechanism into a URL, then handed to announce_audio(). This is the
-   in-process equivalent of the Director script's get_tts_url REST call -
-   confirmed against real HA source (generate_media_source_id's actual
-   signature) and empirically verified against tts.piper,
-   tts.google_translate_en_com, and tts.homeway_sage_free_text_to_speech
-   specifically (not just genuinely-different engines from docs examples)
-   before this was built.
+ - `engine` (free text): "device", or any id registered via POST
+   /engines (bridge-native, resolved by AnnouncementEngine's own
+   EngineRegistry/fallback chain) -> passed straight through to
+   announce_text(engine=...). Also still accepts a manually-typed
+   "tts.<entity_id>" value for backward compatibility, resolved the same
+   way as tts_engine below.
+ - `tts_engine` (real entity selector, domain: tts): pick any installed
+   HA TTS entity - Piper, Google Translate, Homeway Sage, etc. - from an
+   actual dropdown instead of memorizing/typing its id. Resolved via HA's
+   media_source mechanism into a URL, then handed to announce_audio().
+   This is the in-process equivalent of the Director script's
+   get_tts_url REST call - confirmed against real HA source
+   (generate_media_source_id's actual signature) and empirically
+   verified against tts.piper, tts.google_translate_en_com, and
+   tts.homeway_sage_free_text_to_speech specifically (not just
+   genuinely-different engines from docs examples) before this was
+   built. If both tts_engine and engine are given, tts_engine wins, on
+   the theory that picking from a dropdown is a more deliberate choice
+   than whatever engine happened to be set to.
+
+   media_source.async_resolve_media() has been observed to return a bare
+   relative path (e.g. "/api/tts_proxy/xxx.mp3") rather than an absolute
+   URL when called without a target entity_id (which we deliberately pass
+   as None here, since there's no real media_player involved). A relative
+   path is meaningless to the bridge, which is a completely separate
+   Android device fetching this URL over the network - so it's rebuilt
+   into an absolute URL via get_url() before being handed off. This was
+   the actual cause of "engine works, HA reports success, but nothing
+   plays and nothing logs an error anywhere" - the failure happens on the
+   Android side, opening a URI that was never valid to begin with, well
+   after HA had already declared the call a success.
 """
 
 from __future__ import annotations
@@ -58,6 +76,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.network import get_url
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .bridge import AnnouncementBridge
@@ -71,6 +90,7 @@ ATTR_URL = "url"
 ATTR_PRIORITY = "priority"
 ATTR_CATEGORY = "category"
 ATTR_ENGINE = "engine"
+ATTR_TTS_ENGINE = "tts_engine"
 ATTR_SPEAK_TIMEOUT = "speak_timeout"
 
 SERVICE_ANNOUNCE = "announce"
@@ -86,6 +106,7 @@ ANNOUNCE_SCHEMA = vol.All(
             ),
             vol.Optional(ATTR_CATEGORY, default="general"): cv.string,
             vol.Optional(ATTR_ENGINE): cv.string,
+            vol.Optional(ATTR_TTS_ENGINE): cv.entity_id,
             vol.Optional(ATTR_SPEAK_TIMEOUT): vol.Coerce(int),
         }
     ),
@@ -136,10 +157,14 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
         priority = kwargs.get(ATTR_PRIORITY, "normal")
         category = kwargs.get(ATTR_CATEGORY, "general")
         engine = kwargs.get(ATTR_ENGINE)
+        tts_engine = kwargs.get(ATTR_TTS_ENGINE)
         timeout_ms = kwargs.get(ATTR_SPEAK_TIMEOUT)
 
-        if not url and message and engine and engine.startswith(HA_TTS_ENTITY_PREFIX):
-            url = await self._async_resolve_ha_tts_url(engine, message)
+        ha_tts_target = tts_engine or (
+            engine if engine and engine.startswith(HA_TTS_ENTITY_PREFIX) else None
+        )
+        if not url and message and ha_tts_target:
+            url = await self._async_resolve_ha_tts_url(ha_tts_target, message)
 
         if url:
             _LOGGER.info("Calling announce_audio with url=%s", url)
@@ -163,7 +188,13 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
     async def _async_resolve_ha_tts_url(self, engine_entity_id: str, message: str) -> str:
         """Render `message` through an installed HA TTS entity, in-process - no
         token, no network round-trip to ourselves, unlike the REST
-        /api/tts_get_url equivalent this replaces."""
+        /api/tts_get_url equivalent this replaces.
+
+        media_source.async_resolve_media() can return a bare relative path
+        (no scheme/host) rather than an absolute URL - meaningless to the
+        bridge, a separate device fetching this over the network - so it's
+        rebuilt into an absolute URL via get_url() when that happens.
+        """
         identifier = f"{engine_entity_id}?{urlencode({'message': message})}"
         media_content_id = media_source.generate_media_source_id("tts", identifier)
         try:
@@ -172,11 +203,18 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             raise HomeAssistantError(
                 f"Could not render message through {engine_entity_id}: {err}"
             ) from err
+
+        url = play_media.url
+        if url.startswith("/"):
+            base_url = get_url(self.hass, prefer_external=False, allow_internal=True)
+            _LOGGER.info("get_url() resolved base_url=%s for relative path %s", base_url, url)
+            url = f"{base_url}{url}"
+
         _LOGGER.info(
             "Resolved %s via %s -> %s (mime=%s)",
             engine_entity_id,
             media_content_id,
-            play_media.url,
+            url,
             play_media.mime_type,
         )
-        return play_media.url
+        return url
