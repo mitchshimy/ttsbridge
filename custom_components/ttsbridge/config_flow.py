@@ -9,15 +9,13 @@ method name here fails loudly and immediately (an AttributeError the moment
 you click "Reconfigure" in the UI) rather than silently doing the wrong
 thing, so it's a safe thing to test-and-fix rather than pre-verify further.
 
-Note on async_step_start_service: this reuses the exact same mechanism
-RecoveryManager's YAML automation already uses successfully - calling
-androidtv.adb_command to run the same "am start-foreground-service"
-command - rather than anything involving adb port forwarding, which is
-local to whatever machine happens to be running a manual adb client and
-has nothing to do with how HA reaches the device. HA always talks to the
-bridge directly over the LAN; androidtv.adb_command is the one legitimate
-way HA itself can remotely resurrect the Android process, same as
-RecoveryManager already relies on.
+Note on async_step_setup_automations: writing automation YAML files needs
+a real entry_id (used for automation uniqueness and to filter recovery
+events per-device), which only exists after async_create_entry() returns
+- config_flow steps run before the entry exists. So this step only
+collects the choice (which media_player, or skip) and stores it in
+entry.data; the actual file write happens in async_setup_entry
+(__init__.py), which does have the real entry by then.
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import BridgeApiClient, BridgeApiError, BridgeConnectionError
-from .const import DEFAULT_PORT, DOMAIN
+from .const import CONF_MEDIA_PLAYER_ENTITY_ID, DEFAULT_PORT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,10 +59,12 @@ def _schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def _start_service_schema() -> vol.Schema:
+def _media_player_schema(default_entity_id: str | None = None) -> vol.Schema:
     return vol.Schema(
         {
-            vol.Optional(ATTR_MEDIA_PLAYER_ENTITY): selector.EntitySelector(
+            vol.Optional(
+                ATTR_MEDIA_PLAYER_ENTITY, default=default_entity_id
+            ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="media_player", integration="androidtv")
             ),
         }
@@ -87,6 +87,10 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._host: str | None = None
         self._port: int | None = None
+        # Carried forward from async_step_start_service if that path was
+        # taken, so async_step_setup_automations can pre-fill it instead
+        # of asking for the same entity twice.
+        self._known_media_player_entity_id: str | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
@@ -98,23 +102,21 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(f"{host}:{port}")
             self._abort_if_unique_id_configured()
 
+            self._host = host
+            self._port = port
+
             try:
                 await _validate_connection(self.hass, host, port)
             except (BridgeConnectionError, BridgeApiError):
                 # Don't just fail here - offer to start it via ADB first,
                 # the same way RecoveryManager's automation already does
                 # successfully, before making the user go do that by hand.
-                self._host = host
-                self._port = port
                 return await self.async_step_start_service()
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Unexpected error validating TTS Bridge connection")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(
-                    title=f"TTS Bridge ({host})",
-                    data={CONF_HOST: host, CONF_PORT: port},
-                )
+                return await self.async_step_setup_automations()
 
         return self.async_show_form(step_id="user", data_schema=_schema(), errors=errors)
 
@@ -151,10 +153,10 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         _LOGGER.exception("Unexpected error validating TTS Bridge connection")
                         errors["base"] = "unknown"
                     else:
-                        return self.async_create_entry(
-                            title=f"TTS Bridge ({self._host})",
-                            data={CONF_HOST: self._host, CONF_PORT: self._port},
-                        )
+                        # We already know the right media_player entity -
+                        # carry it forward so the next step can pre-fill it.
+                        self._known_media_player_entity_id = entity_id
+                        return await self.async_step_setup_automations()
             else:
                 # Declined - no entity picked, surface the original failure
                 # rather than looping on this step forever.
@@ -162,9 +164,33 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="start_service",
-            data_schema=_start_service_schema(),
+            data_schema=_media_player_schema(),
             errors=errors,
             description_placeholders={"host": self._host or "", "port": str(self._port or "")},
+        )
+
+    async def async_step_setup_automations(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Opt-in: install the recommended power-on/self-heal automations.
+
+        Deliberately a separate, explicit step rather than automatic -
+        this writes a YAML file into the user's automations/ folder,
+        which is a different kind of action than anything else this
+        integration does (see automations.py's module docstring for why
+        that distinction matters). The actual file write happens later,
+        in async_setup_entry, once a real entry_id exists.
+        """
+        if user_input is not None:
+            entity_id = user_input.get(ATTR_MEDIA_PLAYER_ENTITY)
+            data: dict[str, Any] = {CONF_HOST: self._host, CONF_PORT: self._port}
+            if entity_id:
+                data[CONF_MEDIA_PLAYER_ENTITY_ID] = entity_id
+            return self.async_create_entry(title=f"TTS Bridge ({self._host})", data=data)
+
+        return self.async_show_form(
+            step_id="setup_automations",
+            data_schema=_media_player_schema(self._known_media_player_entity_id),
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:

@@ -11,8 +11,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.network import NoURLAvailableError
 
 from .api import BridgeApiClient
+from .automations import async_install_automations, async_remove_automations
 from .bridge import AnnouncementBridge
-from .const import DOMAIN
+from .const import CONF_MEDIA_PLAYER_ENTITY_ID, DOMAIN
 from .coordinator import TtsBridgeCoordinator
 from .recovery import RecoveryManager
 from .webhook import (
@@ -85,6 +86,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Opt-in only (see automations.py / config_flow.py's
+    # async_step_setup_automations for why) - key is simply absent from
+    # entry.data if the user skipped that step. Must run AFTER the
+    # platform forward above: it looks up the notify entity via the
+    # entity registry, which doesn't exist until notify.py's
+    # async_setup_entry has actually run and registered it.
+    media_player_entity_id = entry.data.get(CONF_MEDIA_PLAYER_ENTITY_ID)
+    if media_player_entity_id:
+        try:
+            await async_install_automations(
+                hass, entry.entry_id, entry.data[CONF_HOST], media_player_entity_id
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception(
+                "Could not install automations for entry %s - the integration "
+                "itself is still fully set up, this only affects the optional "
+                "auto-generated automations file",
+                entry.entry_id,
+            )
+
     return True
 
 
@@ -99,6 +120,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if stored.get("webhook_id") is not None:
                 async_unregister_webhook_receiver(hass, stored["webhook_id"])
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Called on permanent removal (not reload/disable) - clean up the
+    auto-generated automations file if one was ever installed for this entry."""
+    await async_remove_automations(hass, entry.entry_id)
+
 
 
 

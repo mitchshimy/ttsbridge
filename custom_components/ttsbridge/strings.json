@@ -16,6 +16,13 @@
           "media_player_entity_id": "Android TV device"
         }
       },
+      "setup_automations": {
+        "title": "Install recommended automations?",
+        "description": "Optionally, pick the matching Android TV device to have this integration write two automations for you: starting the bridge when the TV powers on, and restarting it automatically if it ever stops responding. This writes a file into your automations/ folder and is entirely optional - leave it blank to skip and manage this yourself.",
+        "data": {
+          "media_player_entity_id": "Android TV device (leave blank to skip)"
+        }
+      },
       "reconfigure": {
         "title": "Reconfigure TTS Bridge",
         "description": "Update the IP address or port for this device.",
