@@ -156,6 +156,11 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         # We already know the right media_player entity -
                         # carry it forward so the next step can pre-fill it.
                         self._known_media_player_entity_id = entity_id
+                        _LOGGER.info(
+                            "start_service succeeded, transitioning to setup_automations "
+                            "(known entity=%s)",
+                            entity_id,
+                        )
                         return await self.async_step_setup_automations()
             else:
                 # Declined - no entity picked, surface the original failure
@@ -181,6 +186,11 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         that distinction matters). The actual file write happens later,
         in async_setup_entry, once a real entry_id exists.
         """
+        _LOGGER.info(
+            "async_step_setup_automations called, user_input=%s, known_entity=%s",
+            user_input,
+            self._known_media_player_entity_id,
+        )
         if user_input is not None:
             entity_id = user_input.get(ATTR_MEDIA_PLAYER_ENTITY)
             data: dict[str, Any] = {CONF_HOST: self._host, CONF_PORT: self._port}

@@ -33,7 +33,7 @@ import logging
 import os
 
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN
 
@@ -46,13 +46,19 @@ def _automation_filename(entry_id: str) -> str:
     return f"ttsbridge_{entry_id}.yaml"
 
 
-def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: str, notify_entity_id: str | None) -> str:
+def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: str, device_id: str | None) -> str:
     recovered_announce = ""
-    if notify_entity_id:
+    if device_id:
+        # device_id, not entity_id: the notify entity's *name* can change
+        # (the user renaming it is a completely normal thing to do), but
+        # the device_id never does - HA resolves device_id -> whatever
+        # entity currently exists for it at call time, not at the moment
+        # this file was generated. A hardcoded entity_id here previously
+        # broke silently the first time the entity got renamed.
         recovered_announce = f"""
     - action: notify.send_message
       target:
-        entity_id: {notify_entity_id}
+        device_id: {device_id}
       data:
         message: "Announcement bridge recovered\""""
 
@@ -97,10 +103,17 @@ async def async_install_automations(
     hass: HomeAssistant, entry_id: str, host: str, media_player_entity_id: str
 ) -> None:
     """Write the automations file for one device and reload automations to pick it up."""
-    registry = er.async_get(hass)
-    notify_entity_id = registry.async_get_entity_id("notify", DOMAIN, f"{entry_id}_notify")
+    registry = dr.async_get(hass)
+    device = registry.async_get_device(identifiers={(DOMAIN, entry_id)})
+    device_id = device.id if device else None
+    if device_id is None:
+        _LOGGER.warning(
+            "Could not find the device registry entry for %s - the generated "
+            "automation's 'recovered' announcement step will be omitted",
+            entry_id,
+        )
 
-    content = _render_automations_yaml(entry_id, host, media_player_entity_id, notify_entity_id)
+    content = _render_automations_yaml(entry_id, host, media_player_entity_id, device_id)
     path = hass.config.path("automations", _automation_filename(entry_id))
 
     def _write() -> None:
