@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:label="TTS Bridge"
+        android:allowBackup="false"
+        android:usesCleartextTraffic="true">
+        <!--
+            This app only ever talks HTTP (no TLS) to devices on the local
+            LAN - our own inbound server (ControlHttpServer) plus outgoing
+            calls to HA's webhook and any per-announcement callbackUrl.
+            Android blocks outgoing cleartext requests by default since
+            API 28, which is exactly what broke the webhook push
+            ("Cleartext HTTP traffic to <ip> not permitted"). Since
+            everything here is LAN-only anyway, blanket-allowing cleartext
+            is the right call rather than standing up a network security
+            config or TLS for a home automation bridge.
+        -->
+
+        <!--
+            exported="true" so "adb shell am start-foreground-service" and the
+            legacy es text/url intent extras keep working alongside the HTTP API.
+            foregroundServiceType="mediaPlayback" because this is now a
+            long-lived service (HTTP server + queue), not a one-shot task.
+        -->
+        <service
+            android:name=".AnnouncementService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!--
+            Boots the service automatically so the HTTP API and queue are
+            live (and the TTS engine pre-warmed) without waiting for the
+            first announcement to arrive.
+        -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>

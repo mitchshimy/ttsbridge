@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to TTS Bridge",
+        "description": "Enter the IP address of the Android TV running the TTS Bridge app.",
+        "data": {
+          "host": "Host (IP address)",
+          "port": "Port"
+        }
+      },
+      "start_service": {
+        "title": "Bridge not responding",
+        "description": "Could not reach the TTS Bridge app at {host}:{port}. If it just isn't running right now, pick the matching Android TV device below and we'll try starting it remotely over ADB before giving up. Leave this blank to see the connection error instead.",
+        "data": {
+          "media_player_entity_id": "Android TV device"
+        }
+      },
+      "setup_automations": {
+        "title": "Install recommended automations?",
+        "description": "Optionally, pick the matching Android TV device to have this integration write two automations for you: starting the bridge when the TV powers on, and restarting it automatically if it ever stops responding. This writes a file into your automations/ folder and is entirely optional - leave it blank to skip and manage this yourself.",
+        "data": {
+          "media_player_entity_id": "Android TV device (leave blank to skip)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure TTS Bridge",
+        "description": "Update the IP address or port for this device.",
+        "data": {
+          "host": "Host (IP address)",
+          "port": "Port"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the TTS Bridge at that address. Check the IP/port and that the app is running.",
+      "androidtv_not_available": "The Android TV integration isn't available, so this device can't be started remotely. Start the app manually and try again.",
+      "start_failed": "Couldn't send the start command to the device - check the Home Assistant logs for details.",
+      "still_cannot_connect": "Sent the start command, but the bridge still isn't responding. It may need more time, or something else may be wrong - check the app on the device directly.",
+      "unknown": "Unexpected error - check the Home Assistant logs for details."
+    },
+    "abort": {
+      "already_configured": "This TTS Bridge is already configured.",
+      "reconfigure_successful": "Reconfiguration successful."
+    }
+  }
+}
