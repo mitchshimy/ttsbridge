@@ -70,7 +70,17 @@ the manifest.
 
 ## Part 2 — Install the custom_component
 
-1. Extract `ttsbridge_custom_component.zip` on your PC.
+**Option A: via HACS (recommended once the repo is on GitHub)**
+
+1. HACS → ⋮ (top right) → **Custom repositories**.
+2. Add this repo's URL, category **Integration**.
+3. Find "TTS Bridge" in HACS and install it.
+4. **Full restart**: Settings → System → Restart.
+
+**Option B: manually**
+
+1. Extract `ttsbridge-ha-component.zip` (or clone the repo and use the
+   `custom_components/ttsbridge/` folder directly).
 2. Connect to your HA config share:
    `\\<ha-ip>\config` (Windows File Explorer address bar).
 3. If a `custom_components` folder doesn't exist there, create one.
