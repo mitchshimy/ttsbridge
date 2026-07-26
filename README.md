@@ -5,6 +5,11 @@ controlled from Home Assistant — with its own priority queue, pluggable
 TTS engines, audio-focus handling, and a full HA integration (not just a
 handful of YAML `rest_command`s).
 
+[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=YOUR_GITHUB_USERNAME&repository=ttsbridge&category=integration)
+
+*(Replace `YOUR_GITHUB_USERNAME` in that link once the repo is actually
+on GitHub — it won't resolve correctly until then.)*
+
 Two halves, talking over plain HTTP on your LAN:
 
 ```
@@ -47,22 +52,30 @@ automatic recovery if the app ever stops responding.
    prerequisites through your first working announcement, with a
    troubleshooting section built from real issues hit during development.
 2. Build/install the Android app (`android/`) on your TV box.
-3. Copy `homeassistant/custom_components/ttsbridge/` into your HA config's
-   `custom_components/` folder and restart HA.
+3. Install the Home Assistant integration, either:
+   - **Via HACS** (recommended): HACS → ⋮ → Custom repositories → add
+     this repo's URL as an "Integration" → install `TTS Bridge` → restart
+     HA. Update notifications come for free on future releases.
+   - **Manually**: copy `custom_components/ttsbridge/` into your HA
+     config's `custom_components/` folder and restart HA.
 4. Settings → Devices & Services → Add Integration → **TTS Bridge**.
 
 ## Repo structure
 
 ```
-android/            Android app (Gradle project) - installs on the TV
-homeassistant/       Home Assistant custom_component
+android/              Android app (Gradle project) - installs on the TV
+custom_components/
+  ttsbridge/            Home Assistant custom_component (HACS-compatible
+                         path: must sit at repo root, not nested)
+hacs.json              HACS manifest - lets this repo be added as a
+                        HACS custom repository
 docs/
-  setup-guide.md      Step-by-step installation & configuration
-  reference.md         Full technical reference - architecture, every
-                        endpoint/entity/service, known limitations
-  investigation-*.md   A real hardware/firmware bug investigation (TCL
-                        Android TV dialogue loss on 5.1 audio) - kept as
-                        a reference for anyone hitting the same symptom
+  setup-guide.md        Step-by-step installation & configuration
+  reference.md           Full technical reference - architecture, every
+                          endpoint/entity/service, known limitations
+  investigation-*.md     A real hardware/firmware bug investigation (TCL
+                          Android TV dialogue loss on 5.1 audio) - kept as
+                          a reference for anyone hitting the same symptom
 ```
 
 **Start with the setup guide if you just want this running.** The
