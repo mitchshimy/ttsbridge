@@ -603,8 +603,29 @@ file or one written by hand before this feature existed.
 
 1. **The self-heal / power-on automations**
    (`automations/ttsbridge_<entry_id>.yaml` if auto-generated):
-   - Trigger on the associated `media_player` entity turning `"on"` →
-     wait 5s → call `androidtv.adb_command` with the start command.
+   - Trigger on the associated `media_player` leaving any off-like state
+     (`from: [off, standby, unavailable]`, no `to:` filter) → wait 5s →
+     call `androidtv.adb_command` with the start command. **Deliberately
+     not** `to: "on"` - `androidtv` media_player state machines vary
+     meaningfully by device/firmware, and plenty never report a literal
+     `"on"` state at all (confirmed in practice: one real device went
+     straight from `off` to `idle` and simply never fired a `to: "on"`
+     trigger, silently, with no error anywhere - the automation just
+     never ran). Triggering on *leaving* a known-off state, regardless of
+     what the destination state is actually called, is portable across
+     that variation in a way a fixed `to:` string isn't.
+
+     **This still isn't bulletproof for every possible device.** The
+     `from:` list (`off`, `standby`, `unavailable`) covers the common
+     cases, but if a specific TV/integration reports a different string
+     for its powered-down state, the trigger still won't fire. If the
+     power-on automation seems to never trigger: Developer Tools → States
+     → find the `media_player` entity → physically power the TV off, note
+     the exact state string shown, then power it on and note that string
+     too. If the "off" one isn't already in the `from:` list, add it
+     manually to the generated YAML file and reload automations - no code
+     change needed, since this is normal per-file editing, not something
+     that requires updating the integration itself.
    - Trigger on the `ttsbridge_recovery_needed` **event** (not a `state`
      trigger - a `time_pattern`-based version was tried first and
      rejected: it fired a trace every single tick regardless of whether
