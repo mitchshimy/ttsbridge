@@ -205,6 +205,28 @@ running:**
   power-on automation exists - it doesn't rely on the OS's own boot
   broadcast at all, just HA noticing the TV turned on.
 
+**The power-on automation never seems to fire, even though the TV is
+clearly turning on:**
+- The generated automation triggers on the `media_player` entity leaving
+  a known "off" state (`off`/`standby`/`unavailable`) rather than
+  reaching a specific "on" state, specifically because different
+  `androidtv` devices/firmware report different state names - some never
+  report a literal `"on"` at all (confirmed: one real device goes
+  straight from `off` to `idle`). If your device uses a genuinely
+  different "off" string than the three covered by default, the trigger
+  still won't fire. To check and fix:
+  1. Developer Tools → States, find your `media_player.<androidtv
+     entity>`.
+  2. Physically turn the TV off. Note the *exact* state string shown
+     (case-sensitive).
+  3. If it's not `off`, `standby`, or `unavailable`, open
+     `automations/ttsbridge_<entry_id>.yaml` (via Samba) and add it to
+     the `from:` list under the power-on trigger.
+  4. Settings → Automations & Scenes → three-dot menu → **Reload
+     automations** (or restart HA).
+  5. Turn the TV off and on again and confirm the automation fires this
+     time (check its **Traces**).
+
 **"Referenced entities ... are missing or not currently available" in
 the logs, from a self-heal automation:**
 - If you ever renamed the device's notify entity, an *older* generated

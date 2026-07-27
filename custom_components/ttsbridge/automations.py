@@ -71,9 +71,19 @@ def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: s
 - id: ttsbridge_{entry_id}_start_on_power_on
   alias: "TTS Bridge ({host}) - start on power on"
   trigger:
+    # Fires when the TV leaves any off-like state, into ANYTHING else -
+    # not on reaching a specific "on" string. androidtv media_player
+    # state machines vary by device: many go straight from "off" to
+    # "idle"/"standby" and never report a literal "on" at all, so
+    # triggering on `to: "on"` silently never fires on those devices.
+    # `from:` with no `to:` fires on any transition away from these
+    # states, whatever the destination state happens to be called.
     - trigger: state
       entity_id: {media_player_entity_id}
-      to: "on"
+      from:
+        - "off"
+        - "standby"
+        - "unavailable"
   action:
     - delay: "00:00:05"
     - action: androidtv.adb_command
