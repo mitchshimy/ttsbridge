@@ -5,7 +5,7 @@ controlled from Home Assistant — with its own priority queue, pluggable
 TTS engines, audio-focus handling, and a full HA integration (not just a
 handful of YAML `rest_command`s).
 
-[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=YOUR_GITHUB_USERNAME&repository=ttsbridge&category=integration)
+[![Add to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=mitchshimy&repository=ttsbridge&category=integration)
 
 
 Two halves, talking over plain HTTP on your LAN:
