@@ -111,7 +111,3 @@ not required reading to get started.
 See `docs/reference.md` §7 for the full, current list of what's built vs.
 deliberately deferred.
 
-## License
-
-Add your preferred license here (MIT is a common, permissive choice for
-a project like this if you're not sure).
