@@ -37,6 +37,19 @@ public class DeviceTtsProvider implements AnnouncementProvider, TextToSpeech.OnI
         ready = status == TextToSpeech.SUCCESS;
         if (ready) {
             tts.setLanguage(Locale.getDefault());
+            // Modern AudioAttributes-based routing, NOT the legacy
+            // KEY_PARAM_STREAM int (see playNow) - the legacy stream-type
+            // param gets handed to the platform TTS engine's own synthesis
+            // process, and STREAM_ACCESSIBILITY silently produces no audio
+            // there for a non-accessibility-service caller (onStart still
+            // fires, onDone/onError often never do, so it just hangs until
+            // the engine's own timeout). AudioAttributes-based routing goes
+            // through the same usage-based policy path MediaPlayer already
+            // uses successfully in the other providers.
+            tts.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build());
         } else {
             Log.e(TAG, "TTS engine init failed, status=" + status);
         }

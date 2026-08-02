@@ -140,7 +140,7 @@ public class RemoteHttpTtsProvider implements AnnouncementProvider {
             MediaPlayer mp = new MediaPlayer();
             mediaPlayer = mp;
             mp.setAudioAttributes(new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build());
             mp.setDataSource(dataSource);
