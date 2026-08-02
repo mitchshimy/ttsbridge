@@ -1,5 +1,12 @@
 # Addendum: Manual-Duck-Only Experiment and Final Conclusion
 
+> **⚠️ Superseded.** The "final conclusion" below (no remaining
+> app-level fix) was wrong - the `manual_duck_only` experiment did not
+> actually control for concurrent audio on the shared output path (see
+> [`investigation-dialogue-loss-resolution.md`](./investigation-dialogue-loss-resolution.md)).
+> The experiment itself and its result are accurately reported; the
+> interpretation was not.
+
 *Follow-up to "Investigation Report: Dialogue Loss After TTS Announcements on TCL Android TV"*
 
 ---

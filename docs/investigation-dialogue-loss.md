@@ -1,5 +1,12 @@
 # Investigation Report: Dialogue Loss After TTS Announcements on TCL Android TV
 
+> **⚠️ Superseded.** This report's conclusion (unfixable TCL firmware
+> defect) was wrong. See
+> [`investigation-dialogue-loss-resolution.md`](./investigation-dialogue-loss-resolution.md)
+> for the actual root cause (an app-level audio routing issue) and the fix.
+> Kept here for the investigative trail, which is still accurate up to its
+> conclusion.
+
 ## Summary
 
 While developing the **TTS Bridge** Android application, an issue was discovered where some streaming applications permanently lost dialogue after a Text-to-Speech announcement interrupted playback.

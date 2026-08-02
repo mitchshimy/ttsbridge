@@ -69,7 +69,7 @@ public class AudioFocusManager {
                 : AudioManager.AUDIOFOCUS_GAIN_TRANSIENT;
 
         AudioAttributes attrs = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build();
 
@@ -160,4 +160,3 @@ public class AudioFocusManager {
         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, level, 0);
     }
 }
-
