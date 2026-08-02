@@ -472,18 +472,29 @@ public class AnnouncementService extends Service {
                 stopCurrentAndMaybeClear(false);
             }
         });
-        mediaSession.setActive(true);
+        // Starts inactive - there's nothing to announce yet. Activated/
+        // deactivated per-announcement in updateMediaSession() below, not
+        // once-and-forever here, or any observer that treats "session
+        // active" as "something is playing" (e.g. a Cast/Android-TV
+        // media_player entity mirroring this device) would see us as
+        // permanently playing after the very first announcement.
         updateMediaSession();
     }
 
     private void updateMediaSession() {
         if (mediaSession == null) return;
+        boolean active = state == EngineState.SPEAKING || state == EngineState.BUSY;
         int playbackState = state == EngineState.SPEAKING ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_STOPPED;
+        // Order matters: mark active before pushing a PLAYING state, but
+        // drop back to inactive only after pushing the STOPPED state, so
+        // observers never see an inactive session claiming to be playing.
+        if (active) mediaSession.setActive(true);
         PlaybackState ps = new PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_STOP)
                 .setState(playbackState, 0, 1f)
                 .build();
         mediaSession.setPlaybackState(ps);
+        if (!active) mediaSession.setActive(false);
     }
 
     private void acquireWakeLock() {
