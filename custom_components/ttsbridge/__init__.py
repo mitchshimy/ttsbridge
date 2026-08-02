@@ -13,7 +13,7 @@ from homeassistant.helpers.network import NoURLAvailableError
 from .api import BridgeApiClient
 from .automations import async_install_automations, async_remove_automations
 from .bridge import AnnouncementBridge
-from .const import CONF_MEDIA_PLAYER_ENTITY_ID, CONF_TRIGGER_ENTITY_ID, DOMAIN
+from .const import CONF_MEDIA_PLAYER_ENTITY_ID, DOMAIN
 from .coordinator import TtsBridgeCoordinator
 from .recovery import RecoveryManager
 from .webhook import (
@@ -94,14 +94,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # async_setup_entry has actually run and registered it.
     media_player_entity_id = entry.data.get(CONF_MEDIA_PLAYER_ENTITY_ID)
     if media_player_entity_id:
-        trigger_entity_id = entry.data.get(CONF_TRIGGER_ENTITY_ID)
         try:
             await async_install_automations(
-                hass,
-                entry.entry_id,
-                entry.data[CONF_HOST],
-                media_player_entity_id,
-                trigger_entity_id,
+                hass, entry.entry_id, entry.data[CONF_HOST], media_player_entity_id
             )
         except Exception:  # noqa: BLE001
             _LOGGER.exception(

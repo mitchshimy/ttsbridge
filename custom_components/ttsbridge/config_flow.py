@@ -34,17 +34,11 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import BridgeApiClient, BridgeApiError, BridgeConnectionError
-from .const import (
-    CONF_MEDIA_PLAYER_ENTITY_ID,
-    CONF_TRIGGER_ENTITY_ID,
-    DEFAULT_PORT,
-    DOMAIN,
-)
+from .const import CONF_MEDIA_PLAYER_ENTITY_ID, DEFAULT_PORT, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
 ATTR_MEDIA_PLAYER_ENTITY = "media_player_entity_id"
-ATTR_TRIGGER_ENTITY = "trigger_entity_id"
 
 # Matches AnnouncementService.java's fully-qualified component name -
 # exactly what RecoveryManager's YAML automation already sends successfully.
@@ -72,33 +66,6 @@ def _media_player_schema(default_entity_id: str | None = None) -> vol.Schema:
                 ATTR_MEDIA_PLAYER_ENTITY, default=default_entity_id
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="media_player", integration="androidtv")
-            ),
-        }
-    )
-
-
-def _setup_automations_schema(
-    default_media_player_entity_id: str | None = None,
-) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Optional(
-                ATTR_MEDIA_PLAYER_ENTITY, default=default_media_player_entity_id
-            ): selector.EntitySelector(
-                # Must stay scoped to the androidtv integration specifically -
-                # this is the entity adb_command actually targets, a hard
-                # technical requirement, not a preference.
-                selector.EntitySelectorConfig(domain="media_player", integration="androidtv")
-            ),
-            vol.Optional(ATTR_TRIGGER_ENTITY): selector.EntitySelector(
-                # Deliberately NOT filtered to androidtv - any media_player
-                # works here, and a push-based one (e.g. from
-                # androidtv_remote) is often far more reliable to trigger
-                # on than an ADB-polled entity, which flaps through
-                # "unavailable" on every WiFi/ADB session hiccup. Left
-                # blank, the power-on automation just uses the entity
-                # above for both purposes (previous behavior).
-                selector.EntitySelectorConfig(domain="media_player")
             ),
         }
     )
@@ -226,17 +193,14 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
         if user_input is not None:
             entity_id = user_input.get(ATTR_MEDIA_PLAYER_ENTITY)
-            trigger_entity_id = user_input.get(ATTR_TRIGGER_ENTITY)
             data: dict[str, Any] = {CONF_HOST: self._host, CONF_PORT: self._port}
             if entity_id:
                 data[CONF_MEDIA_PLAYER_ENTITY_ID] = entity_id
-                if trigger_entity_id:
-                    data[CONF_TRIGGER_ENTITY_ID] = trigger_entity_id
             return self.async_create_entry(title=f"TTS Bridge ({self._host})", data=data)
 
         return self.async_show_form(
             step_id="setup_automations",
-            data_schema=_setup_automations_schema(self._known_media_player_entity_id),
+            data_schema=_media_player_schema(self._known_media_player_entity_id),
         )
 
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:

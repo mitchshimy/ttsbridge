@@ -18,10 +18,9 @@
       },
       "setup_automations": {
         "title": "Install recommended automations?",
-        "description": "Optionally, have this integration write two automations for you: starting the bridge when the TV powers on, and restarting it automatically if it ever stops responding. This writes a file into your automations/ folder and is entirely optional - leave both fields blank to skip and manage this yourself.",
+        "description": "Optionally, pick the matching Android TV device to have this integration write two automations for you: starting the bridge when the TV powers on, and restarting it automatically if it ever stops responding. This writes a file into your automations/ folder and is entirely optional - leave it blank to skip and manage this yourself.",
         "data": {
-          "media_player_entity_id": "Android TV device (ADB-capable, leave blank to skip)",
-          "trigger_entity_id": "Power-on trigger device (optional - a different, more stable entity to watch for power-on, e.g. from Android TV Remote. Leave blank to just use the device above for both.)"
+          "media_player_entity_id": "Android TV device (leave blank to skip)"
         }
       },
       "reconfigure": {
