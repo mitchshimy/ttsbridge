@@ -71,9 +71,11 @@ docs/
   setup-guide.md        Step-by-step installation & configuration
   reference.md           Full technical reference - architecture, every
                           endpoint/entity/service, known limitations
-  investigation-*.md     A real hardware/firmware bug investigation (TCL
-                          Android TV dialogue loss on 5.1 audio) - kept as
-                          a reference for anyone hitting the same symptom
+  investigation-*.md     An audio-routing bug investigation (dialogue
+                          loss on 5.1 tracks after an announcement) - the
+                          initial writeup misdiagnosed it as unfixable TCL
+                          firmware; investigation-dialogue-loss-
+                          resolution.md has the actual root cause and fix
 ```
 
 **Start with the setup guide if you just want this running.** The
@@ -98,11 +100,6 @@ not required reading to get started.
   (binary over TCP), which is a protocol mismatch, not a config issue.
   Route Piper/cloud engines through HA's own TTS entities instead (fully
   supported, see the reference doc).
-- One TCL-specific hardware/firmware bug is documented but not fixable
-  from application code: 5.1 surround audio can lose its dialogue channel
-  after any interruption on some TCL Android TV firmware. See
-  `docs/investigation-dialogue-loss.md` for the full investigation and
-  workarounds (disable TV audio processing, or use stereo tracks).
 - No automated test suite yet for the HA component — verification during
   development relied on exercising real code against an actual installed
   Home Assistant instance rather than mocks, but that wasn't formalized
@@ -111,3 +108,7 @@ not required reading to get started.
 See `docs/reference.md` §7 for the full, current list of what's built vs.
 deliberately deferred.
 
+## License
+
+Add your preferred license here (MIT is a common, permissive choice for
+a project like this if you're not sure).

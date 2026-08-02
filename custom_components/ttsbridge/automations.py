@@ -25,6 +25,24 @@ entirely by RecoveryManager in Python (see recovery.py) as part of its
 recovery event, so the automation's only remaining job is the one thing
 that genuinely can't move into Python - resurrecting the process via
 androidtv.adb_command.
+
+The power-on automation's trigger entity and the adb_command target
+entity are deliberately separate parameters (trigger_entity_id vs
+media_player_entity_id), not one shared entity. adb_command has a hard
+requirement - it only works against entities from the classic ADB-based
+androidtv integration. But that same ADB-polled entity is often a poor
+choice to trigger ON: ADB sessions drop and reconnect over WiFi
+routinely, and every blip shows up as a state change through
+"unavailable", which made the power-on automation fire far too often
+when it was forced to watch that same entity (confirmed in practice - a
+`from: [off, standby, unavailable]` trigger against an ADB entity fired
+almost every few seconds, not just on genuine power-on events). A
+push-based entity from a different integration (e.g. androidtv_remote,
+which doesn't poll over ADB at all) is typically far more stable to
+watch, even though it can't be used to actually run the restart command
+itself. trigger_entity_id defaults to media_player_entity_id if not
+separately provided, preserving the old single-entity behavior for
+anyone who doesn't have a second, more stable entity available.
 """
 
 from __future__ import annotations
@@ -46,7 +64,13 @@ def _automation_filename(entry_id: str) -> str:
     return f"ttsbridge_{entry_id}.yaml"
 
 
-def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: str, device_id: str | None) -> str:
+def _render_automations_yaml(
+    entry_id: str,
+    host: str,
+    media_player_entity_id: str,
+    trigger_entity_id: str,
+    device_id: str | None,
+) -> str:
     recovered_announce = ""
     if device_id:
         # device_id, not entity_id: the notify entity's *name* can change
@@ -71,9 +95,27 @@ def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: s
 - id: ttsbridge_{entry_id}_start_on_power_on
   alias: "TTS Bridge ({host}) - start on power on"
   trigger:
+    # Fires when the TV leaves any off-like state, into ANYTHING else -
+    # not on reaching a specific "on" string. androidtv media_player
+    # state machines vary by device: many go straight from "off" to
+    # "idle"/"standby" and never report a literal "on" at all, so
+    # triggering on `to: "on"` silently never fires on those devices.
+    # `from:` with no `to:` fires on any transition away from these
+    # states, whatever the destination state happens to be called.
+    #
+    # This watches trigger_entity_id, NOT necessarily the same entity
+    # adb_command targets below - an ADB-polled entity flaps through
+    # "unavailable" on every WiFi/connection hiccup, which made this
+    # fire constantly when it was forced to share the ADB entity. If a
+    # more stable entity (e.g. from androidtv_remote) was provided during
+    # setup, it's used here instead; otherwise this is the same entity as
+    # below.
     - trigger: state
-      entity_id: {media_player_entity_id}
-      to: "on"
+      entity_id: {trigger_entity_id}
+      from:
+        - "off"
+        - "standby"
+        - "unavailable"
   action:
     - delay: "00:00:05"
     - action: androidtv.adb_command
@@ -100,7 +142,11 @@ def _render_automations_yaml(entry_id: str, host: str, media_player_entity_id: s
 
 
 async def async_install_automations(
-    hass: HomeAssistant, entry_id: str, host: str, media_player_entity_id: str
+    hass: HomeAssistant,
+    entry_id: str,
+    host: str,
+    media_player_entity_id: str,
+    trigger_entity_id: str | None = None,
 ) -> None:
     """Write the automations file for one device and reload automations to pick it up."""
     registry = dr.async_get(hass)
@@ -113,7 +159,13 @@ async def async_install_automations(
             entry_id,
         )
 
-    content = _render_automations_yaml(entry_id, host, media_player_entity_id, device_id)
+    content = _render_automations_yaml(
+        entry_id,
+        host,
+        media_player_entity_id,
+        trigger_entity_id or media_player_entity_id,
+        device_id,
+    )
     path = hass.config.path("automations", _automation_filename(entry_id))
 
     def _write() -> None:
