@@ -59,12 +59,41 @@ public class AnnouncementEngine {
     /** Plays one announcement to completion (or interruption), trying fallback engines on genuine failure. */
     public void play(Announcement a, EventListener events) {
         if (a.url != null && !a.url.trim().isEmpty()) {
-            // Explicit URL: no engine selection, no fallback - play exactly what was asked.
             Outcome outcome = attempt(urlAudio, a, events);
-            events.onAnnouncementFinished(a, outcome.success ? null : outcome.error);
+            if (outcome.success || outcome.interrupted) {
+                events.onAnnouncementFinished(a, outcome.success ? null : "interrupted");
+                return;
+            }
+            // The url path failed outright (e.g. HA unreachable and this
+            // exact phrase was never cached) - if we have the original text,
+            // fall through to the normal device-TTS chain rather than
+            // leaving media ducked/paused with nothing actually playing.
+            // Without this, a dead network turns "announce something" into
+            // several seconds of silence over an interrupted movie.
+            if (a.text == null || a.text.trim().isEmpty()) {
+                events.onAnnouncementFinished(a, outcome.error);
+                return;
+            }
+            String urlError = outcome.error;
+            Outcome fallback = runEngineChain(a, events);
+            if (!fallback.success && !fallback.interrupted) {
+                events.onAnnouncementFinished(a, "url_failed (" + urlError + "), " + fallback.error);
+                return;
+            }
+            events.onAnnouncementFinished(a, fallback.success ? null : "interrupted");
             return;
         }
 
+        Outcome outcome = runEngineChain(a, events);
+        if (outcome.interrupted) {
+            events.onAnnouncementFinished(a, "interrupted");
+            return;
+        }
+        events.onAnnouncementFinished(a, outcome.success ? null : "all_engines_failed (" + outcome.error + ")");
+    }
+
+    /** Tries the resolved engine chain (a.engine override, then default chain, then device) in order until one succeeds. */
+    private Outcome runEngineChain(Announcement a, EventListener events) {
         List<EngineConfig> chain = registry.resolveChain(a.engine);
         String lastError = "no_engine_available";
         for (EngineConfig cfg : chain) {
@@ -76,16 +105,14 @@ public class AnnouncementEngine {
                 // Cut off on purpose (e.g. an EMERGENCY pre-empted us) - not
                 // an engine failure, so don't burn through the fallback
                 // chain trying other engines for no reason.
-                events.onAnnouncementFinished(a, "interrupted");
-                return;
+                return outcome;
             }
             if (outcome.success) {
-                events.onAnnouncementFinished(a, null);
-                return;
+                return outcome;
             }
             lastError = cfg.id + ": " + outcome.error;
         }
-        events.onAnnouncementFinished(a, "all_engines_failed (" + lastError + ")");
+        return new Outcome(false, false, lastError);
     }
 
     private AnnouncementProvider providerFor(EngineConfig cfg) {

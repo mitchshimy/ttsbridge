@@ -7,6 +7,7 @@ import android.util.Log;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,6 +30,8 @@ public class UrlAudioProvider implements AnnouncementProvider {
     private static final String TAG = "TtsBridge/UrlAudio";
     private final SpeechCache speechCache;
     private MediaPlayer mediaPlayer;
+    private volatile HttpURLConnection activeConnection;
+    private volatile boolean cancelled;
 
     // mediaPlayer.stop() does NOT fire onCompletion/onError, so - same as
     // DeviceTtsProvider - we track the in-flight listener ourselves and
@@ -51,6 +54,7 @@ public class UrlAudioProvider implements AnnouncementProvider {
         activeListener = listener;
         activeAnnouncement = a;
         settled.set(false);
+        cancelled = false;
 
         if (a.cacheKey == null || a.cacheKey.trim().isEmpty()) {
             playDataSource(a.url, a, listener);
@@ -71,34 +75,77 @@ public class UrlAudioProvider implements AnnouncementProvider {
     }
 
     private void downloadThenPlay(Announcement a, Listener listener) {
-        File tempFile = null;
+        File tempFile;
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(a.url).openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(15000);
-            try {
-                tempFile = File.createTempFile("ttsbridge_urlcache_", ".audio", null);
-                try (InputStream is = conn.getInputStream(); FileOutputStream fos = new FileOutputStream(tempFile)) {
-                    byte[] buf = new byte[8192];
-                    int n;
-                    while ((n = is.read(buf)) != -1) fos.write(buf, 0, n);
-                }
-            } finally {
-                conn.disconnect();
-            }
-
-            File committed = speechCache.put(a.cacheKey, tempFile);
-            playDataSource(committed.getAbsolutePath(), a, listener);
+            tempFile = downloadToTempFile(a);
         } catch (Exception e) {
-            Log.w(TAG, "cache-miss download failed for key=" + a.cacheKey + ", falling back to direct stream", e);
-            // Losing the caching benefit for this one clip beats losing the
-            // announcement entirely over what might be a transient network blip.
+            if (cancelled) return;
+            // The network fetch itself failed - the url is unreachable (or
+            // too slow). Do NOT retry it via MediaPlayer: that has no
+            // comparably fast, configurable timeout for network sources and
+            // ends up hanging on Android's own much longer default (this is
+            // exactly what turned a 3s fail into a 15-20s one in testing).
+            // Report the failure now so AnnouncementEngine's device-TTS
+            // fallback can take over quickly instead.
+            Log.w(TAG, "cache-miss download failed for key=" + a.cacheKey + " (network error, not retrying same url via MediaPlayer)", e);
+            finishOnce(() -> listener.onError(a, "download_failed: " + e.getMessage()));
+            return;
+        }
+
+        if (cancelled) {
+            //noinspection ResultOfMethodCallIgnored
+            tempFile.delete();
+            return;
+        }
+
+        File committed;
+        try {
+            committed = speechCache.put(a.cacheKey, tempFile);
+        } catch (IOException e) {
+            // Download succeeded (url is confirmed reachable) but committing
+            // to the cache failed for some local reason (disk full, etc) -
+            // here a direct-stream retry of the same url is actually
+            // meaningful, since we just proved it's reachable.
+            Log.w(TAG, "cache write failed for key=" + a.cacheKey + ", streaming directly instead", e);
+            //noinspection ResultOfMethodCallIgnored
+            tempFile.delete();
             playDataSource(a.url, a, listener);
-        } finally {
-            if (tempFile != null) {
-                //noinspection ResultOfMethodCallIgnored
-                tempFile.delete();
+            return;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        tempFile.delete();
+
+        if (cancelled) return;
+        playDataSource(committed.getAbsolutePath(), a, listener);
+    }
+
+    /** Fetches a.url into a fresh temp file. Any thrown exception here means the network fetch itself failed. */
+    private File downloadToTempFile(Announcement a) throws IOException {
+        File tempFile = File.createTempFile("ttsbridge_urlcache_", ".audio", null);
+        HttpURLConnection conn = (HttpURLConnection) new URL(a.url).openConnection();
+        // 3s, not the original 8s: this is the gap between "media gets
+        // ducked/paused" and "we notice HA is unreachable and can fall back
+        // to something audible" (see AnnouncementEngine's url-failure ->
+        // device-TTS fallback). A dead connection should fail fast; a
+        // merely-slow-but-alive one still has 15s of read timeout once
+        // bytes start flowing.
+        conn.setConnectTimeout(3000);
+        conn.setReadTimeout(15000);
+        activeConnection = conn;
+        try {
+            if (cancelled) throw new IOException("cancelled");
+            try (InputStream is = conn.getInputStream(); FileOutputStream fos = new FileOutputStream(tempFile)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = is.read(buf)) != -1) {
+                    if (cancelled) throw new IOException("cancelled");
+                    fos.write(buf, 0, n);
+                }
             }
+            return tempFile;
+        } finally {
+            conn.disconnect();
+            activeConnection = null;
         }
     }
 
@@ -145,6 +192,14 @@ public class UrlAudioProvider implements AnnouncementProvider {
 
     @Override
     public void stop() {
+        cancelled = true;
+        HttpURLConnection conn = activeConnection;
+        if (conn != null) {
+            // Safe to call from another thread; unblocks any in-progress
+            // connect()/read() in downloadThenPlay so it notices `cancelled`
+            // promptly instead of running out its full timeout unsupervised.
+            conn.disconnect();
+        }
         if (mediaPlayer != null) {
             try {
                 if (mediaPlayer.isPlaying()) mediaPlayer.stop();
