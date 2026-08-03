@@ -78,18 +78,28 @@ class BridgeApiClient:
         priority: str = "normal",
         category: str = "general",
         timeout_ms: int | None = None,
+        cache_key: str | None = None,
     ) -> dict[str, Any]:
         """Play a pre-rendered audio URL directly.
 
         An explicit url always bypasses the bridge's own engine-selection
         chain (see Announcement.java / AnnouncementEngine.java) - the caller
         already decided exactly what to play.
+
+        cache_key: opaque, stable identifier for local disk caching on the
+        bridge (see Announcement.cacheKey / SpeechCache.java). Deliberately
+        NOT the url itself - HA's tts_proxy issues a fresh token per resolve
+        even when it's serving cached audio, so callers that know identical
+        input means identical content (see notify.py) pass a key derived
+        from that input instead. Omit for urls with no such guarantee.
         """
         payload: dict[str, Any] = {"url": url, "priority": priority, "category": category}
         if text_fallback:
             payload["text"] = text_fallback
         if timeout_ms:
             payload["timeout"] = timeout_ms
+        if cache_key:
+            payload["cacheKey"] = cache_key
         return await self._post("/announce", json=payload)
 
     async def announce_text(

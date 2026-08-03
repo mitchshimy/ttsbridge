@@ -62,6 +62,7 @@ a style choice:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 from urllib.parse import urlencode
@@ -163,17 +164,33 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
         ha_tts_target = tts_engine or (
             engine if engine and engine.startswith(HA_TTS_ENTITY_PREFIX) else None
         )
+        cache_key = None
         if not url and message and ha_tts_target:
             url = await self._async_resolve_ha_tts_url(ha_tts_target, message)
+            # Only safe to compute here: we resolved this url ourselves from
+            # (message, ha_tts_target), so we know identical inputs mean
+            # identical audio content - HA's own tts cache already guarantees
+            # that (see the persistent-cache design discussion). An
+            # explicitly-passed `url` (the branch below) carries no such
+            # guarantee, so it's deliberately left uncached rather than
+            # risking a stale clip being served for genuinely different audio.
+            #
+            # NOT the same as the url itself: HA's tts_proxy issues a fresh
+            # token per resolve even on its own cache hit, so this has to be
+            # derived from the (message, engine) pair instead, not the url.
+            cache_key = hashlib.sha256(
+                f"{message}|{ha_tts_target}".encode("utf-8")
+            ).hexdigest()
 
         if url:
-            _LOGGER.info("Calling announce_audio with url=%s", url)
+            _LOGGER.info("Calling announce_audio with url=%s cache_key=%s", url, cache_key)
             result = await self._bridge.async_announce_audio(
                 url,
                 text_fallback=message,
                 priority=priority,
                 category=category,
                 timeout_ms=timeout_ms,
+                cache_key=cache_key,
             )
             _LOGGER.info("announce_audio result: %s", result)
             return result

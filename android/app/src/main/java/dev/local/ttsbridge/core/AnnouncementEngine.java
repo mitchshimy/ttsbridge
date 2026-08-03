@@ -43,7 +43,7 @@ public class AnnouncementEngine {
     public AnnouncementEngine(Context appContext) {
         this.appContext = appContext.getApplicationContext();
         deviceTts = new DeviceTtsProvider(appContext);
-        urlAudio = new UrlAudioProvider();
+        urlAudio = new UrlAudioProvider(appContext);
         registry = new EngineRegistry(appContext);
         focusManager = new AudioFocusManager(appContext);
     }
