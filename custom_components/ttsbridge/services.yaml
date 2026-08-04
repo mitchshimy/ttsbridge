@@ -60,6 +60,20 @@ announce:
       selector:
         entity:
           domain: tts
+    chime:
+      name: Chime
+      description: >-
+        Prepend a short chime before the message. Only works together with
+        TTS Engine (or a manually-typed engine set to a tts.<entity> id) -
+        ignored otherwise, with a warning in the log. The value is an id,
+        not a filename: drop an mp3 at
+        config/www/ttsbridge_chimes/<id>.mp3 and use <id> here, e.g.
+        "doorbell" for ttsbridge_chimes/doorbell.mp3. Swapping that file
+        later automatically invalidates cached copies of anything that
+        used it - no separate cache-clearing needed.
+      example: "doorbell"
+      selector:
+        text:
     speak_timeout:
       name: Playback timeout (ms)
       description: Hard ceiling on how long this announcement is allowed to play. Omit to use the bridge's default.
