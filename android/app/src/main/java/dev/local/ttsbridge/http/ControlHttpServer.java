@@ -5,9 +5,7 @@ import android.util.Log;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -86,8 +84,9 @@ public class ControlHttpServer {
     private void handleConnection(Socket socket) {
         try {
             socket.setSoTimeout(10000);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
-            String requestLine = reader.readLine();
+            java.io.InputStream in = socket.getInputStream();
+
+            String requestLine = readHeaderLine(in);
             if (requestLine == null || requestLine.isEmpty()) return;
 
             String[] parts = requestLine.split(" ");
@@ -99,23 +98,30 @@ public class ControlHttpServer {
 
             int contentLength = 0;
             String line;
-            while ((line = reader.readLine()) != null && !line.isEmpty()) {
+            while ((line = readHeaderLine(in)) != null && !line.isEmpty()) {
                 if (line.toLowerCase().startsWith("content-length:")) {
                     contentLength = Integer.parseInt(line.substring(line.indexOf(':') + 1).trim());
                 }
             }
 
-            String bodyStr = "";
-            if (contentLength > 0) {
-                char[] buf = new char[contentLength];
-                int read = 0;
-                while (read < contentLength) {
-                    int n = reader.read(buf, read, contentLength - read);
-                    if (n < 0) break;
-                    read += n;
-                }
-                bodyStr = new String(buf, 0, read);
+            // Content-Length is a BYTE count per the HTTP spec. Read exactly
+            // that many raw bytes - NOT characters - and decode as UTF-8
+            // only once every byte is in hand. Reading through a
+            // char-decoding Reader here (the previous approach) breaks for
+            // any multi-byte UTF-8 character: e.g. an em dash "-" is 3
+            // bytes but 1 char, so a char-counted read loop ends up
+            // expecting more characters than the decoded body actually
+            // contains and blocks forever waiting for bytes the client
+            // already finished sending - which is exactly what was
+            // surfacing as a SocketTimeoutException here.
+            byte[] bodyBytes = new byte[contentLength];
+            int read = 0;
+            while (read < contentLength) {
+                int n = in.read(bodyBytes, read, contentLength - read);
+                if (n < 0) break;
+                read += n;
             }
+            String bodyStr = new String(bodyBytes, 0, read, StandardCharsets.UTF_8);
 
             JSONObject body;
             try {
@@ -156,6 +162,25 @@ public class ControlHttpServer {
             } catch (IOException ignored) {
             }
         }
+    }
+
+    /** Reads one HTTP header/request-line, byte by byte, up to and excluding
+     *  the terminating CRLF (bare LF also accepted). Decoded as ISO-8859-1 -
+     *  a direct 1:1 byte<->char mapping with no multi-byte decoding at all,
+     *  which is what header/request-line syntax actually is per the HTTP
+     *  spec (ASCII-only). Deliberately NOT UTF-8 here: that's for the body
+     *  only, once we know its exact byte length from Content-Length. */
+    private String readHeaderLine(java.io.InputStream in) throws IOException {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        int b;
+        boolean any = false;
+        while ((b = in.read()) != -1) {
+            any = true;
+            if (b == '\n') break;
+            if (b != '\r') buf.write(b);
+        }
+        if (!any && buf.size() == 0) return null;
+        return buf.toString("ISO-8859-1");
     }
 
     private Map<String, String> parseQuery(String qs) {

@@ -80,6 +80,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.network import get_url
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from . import chime
 from .bridge import AnnouncementBridge
 from .const import DOMAIN
 from .coordinator import TtsBridgeCoordinator
@@ -93,6 +94,7 @@ ATTR_CATEGORY = "category"
 ATTR_ENGINE = "engine"
 ATTR_TTS_ENGINE = "tts_engine"
 ATTR_SPEAK_TIMEOUT = "speak_timeout"
+ATTR_CHIME = "chime"
 
 SERVICE_ANNOUNCE = "announce"
 HA_TTS_ENTITY_PREFIX = "tts."
@@ -109,6 +111,7 @@ ANNOUNCE_SCHEMA = vol.All(
             vol.Optional(ATTR_ENGINE): cv.string,
             vol.Optional(ATTR_TTS_ENGINE): cv.entity_id,
             vol.Optional(ATTR_SPEAK_TIMEOUT): vol.Coerce(int),
+            vol.Optional(ATTR_CHIME): cv.string,
         }
     ),
     cv.has_at_least_one_key(ATTR_MESSAGE, ATTR_URL),
@@ -160,6 +163,7 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
         engine = kwargs.get(ATTR_ENGINE)
         tts_engine = kwargs.get(ATTR_TTS_ENGINE)
         timeout_ms = kwargs.get(ATTR_SPEAK_TIMEOUT)
+        chime_id = kwargs.get(ATTR_CHIME)
 
         ha_tts_target = tts_engine or (
             engine if engine and engine.startswith(HA_TTS_ENTITY_PREFIX) else None
@@ -181,6 +185,25 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             cache_key = hashlib.sha256(
                 f"{message}|{ha_tts_target}".encode("utf-8")
             ).hexdigest()
+
+            # Same reasoning extends to the chime: only apply it where we
+            # already trust the cache key, for exactly the same reason. A
+            # given (message, engine, chime) still converges to one stable
+            # key - repeats of the same message with the same chime keep
+            # hitting cache exactly like before chimes existed. The key only
+            # changes if you actually swap the chime audio file itself,
+            # which is the correct, automatic invalidation - see chime.py.
+            if chime_id:
+                url, cache_key = await chime.async_prepend_chime(
+                    self.hass, url, chime_id, cache_key
+                )
+        elif chime_id:
+            _LOGGER.warning(
+                "chime='%s' requested but this announcement isn't going through an HA "
+                "tts.* entity (needs tts_engine, or engine set to a tts.* id) - playing "
+                "without the chime. Chimes are only supported on that path.",
+                chime_id,
+            )
 
         if url:
             _LOGGER.info("Calling announce_audio with url=%s cache_key=%s", url, cache_key)
