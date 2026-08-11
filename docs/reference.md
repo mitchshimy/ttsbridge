@@ -176,9 +176,11 @@ Two **strategies**, switchable live via HTTP (persisted across restarts):
 - **`manual_duck_only`** - skips the AudioFocus API entirely. No other
   app ever receives *any* focus-loss notification, duck or pause. The
   bridge just directly lowers and restores `STREAM_MUSIC` volume around
-  its own playback. Built specifically to test/work around a suspected
-  TV-firmware bug (see §2.9) - **confirmed via testing that it does not
-  fix that specific bug**, so it remains available but is not the
+  its own playback. Built specifically to test/work around the dialogue-
+  loss bug described in §2.9 - **confirmed via testing that it does not
+  fix that bug on its own** (the actual fix was the `USAGE_MEDIA` →
+  `USAGE_ASSISTANCE_ACCESSIBILITY` routing change in §2.9, not the focus
+  strategy), so `manual_duck_only` remains available but is not the
   default. It also has a real downside if used as default: well-behaved
   apps (Spotify, YouTube) that rely on a genuine focus notification to
   pause/duck correctly would no longer receive one.
@@ -221,22 +223,48 @@ requires an external trigger.
   timeout. Not fixed (low priority, ADB/curl-based English text testing
   never hit it), but documented as a known rough edge.
 
-### 2.9 Known hardware/firmware limitation: dialogue loss on 5.1 audio (TCL-specific)
+### 2.9 Resolved: dialogue loss on 5.1 audio (TCL-specific) — was an app-level routing bug, not TV firmware
 
-Thoroughly investigated and **confirmed not to be a bug in this app**.
-Summary of the finding: on this TCL Android TV, interrupting **5.1
-surround audio** playback (in Netflix, Nuvio, etc.) with *any* audio
-interruption - regardless of duck vs. pause, regardless of whether
-Android's AudioFocus API is even used at all (confirmed via the
-`manual_duck_only` experiment) - causes the center/dialogue channel to be
-lost on resume, while background/effects channels continue normally.
-Stereo audio is never affected. Disabling the TV's built-in audio
-processing (Dolby/enhancement/DSP), or using stereo tracks instead of
-5.1, both eliminate the issue completely. This is a TV firmware/hardware
-defect in multichannel audio restoration after interruption, sitting
-below anything reachable from application code on Android. No further
-app-level investigation is planned; see the project's dedicated
-investigation report and addendum for the full methodology.
+**Update: this was fixed at the app level.** It was originally
+investigated and reported (see the project's dialogue-loss investigation
+report and its addendum) as a TV firmware/hardware defect with no
+app-level fix available. That conclusion was **wrong** — see
+`docs/investigation-dialogue-loss-resolution.md` for the full writeup.
+
+Summary of the actual finding: on this TCL Android TV, interrupting
+**5.1 surround audio** playback (Netflix, Nuvio, etc.) with any TTS
+announcement caused the center/dialogue channel to be lost on resume,
+while background/effects channels continued normally. The root cause was
+that every announcement provider played through `USAGE_MEDIA`/
+`STREAM_MUSIC` - the exact same shared output path the affected
+streaming apps used for their own primary 5.1 track. The earlier
+`manual_duck_only` experiment (§2.6) removed the AudioFocus *notification*
+but not this shared-stream collision, which is why it still reproduced
+the bug and looked like confirmation of an unfixable hardware defect.
+
+**The fix**: all announcement playback (`DeviceTtsProvider`,
+`RemoteHttpTtsProvider`, `UrlAudioProvider`, and the `AudioFocusManager`
+focus request itself) now routes through
+`AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY` instead of
+`USAGE_MEDIA` - the same mechanism TalkBack uses to speak over video
+without disrupting the primary output pipeline. Re-tested against the
+original known-bad configuration (Netflix, English 5.1 track, internal
+speakers, TV audio processing enabled) - dialogue now survives an
+announcement without needing to seek.
+
+One implementation gotcha found along the way: routing via the legacy
+`TextToSpeech` `KEY_PARAM_STREAM` int (`STREAM_ACCESSIBILITY`) silently
+produces no audio at all for a non-accessibility-service caller -
+`onStart` fires but `onDone`/`onError` often never do, hanging until
+engine timeout. The working fix uses modern `AudioAttributes`-based
+routing instead (`tts.setAudioAttributes(...)`), which goes through the
+same usage-based policy path `MediaPlayer` already used successfully in
+the other providers.
+
+Stereo audio was never affected by the original bug. No further
+app-level investigation is needed on this specific issue; see
+`docs/investigation-dialogue-loss-resolution.md` for full methodology
+and what the original investigation and addendum got wrong.
 
 ### 2.10 Persisted state (`SharedPreferences`, file `ttsbridge_prefs`)
 
@@ -664,10 +692,25 @@ file or one written by hand before this feature existed.
 
 ## 7. Known Gaps / Explicitly Deferred (Not Yet Built)
 
-- **`script.tts_announce` has not yet been rewritten** to call
-  `ttsbridge.announce` directly instead of the raw `rest_command` +
-  manual `get_tts_url` dance - this was the natural next step once
-  `notify.py` landed, not yet done.
+- **~~`script.tts_announce` has not yet been rewritten~~ — done.**
+  `script.tts_announce` (the Director) now calls `ttsbridge.announce`
+  directly through a small confirm-and-retry wrapper script,
+  `script.ttsbridge_announce_and_confirm`, rather than the earlier raw
+  `rest_command` + manual `get_tts_url` dance. It also gained dynamic
+  engine selection (Homeway Sage → Google Translate → Piper, based on
+  availability), per-TV retry-then-fallback logic across a configurable
+  TV list, and a phone-notification fallback if every TV fails. One
+  worth knowing if touching this script again: an earlier version of the
+  confirm step waited for a webhook-reported `SPEAKING`→`IDLE`
+  transition as proof of playback, but for short messages that cycle can
+  complete in well under 100ms - faster than the script itself could
+  start listening for it - which caused false failures (and a real
+  duplicate announcement) on nearly every call. That wait was removed
+  entirely rather than tuned; confirmation now just checks that
+  `ttsbridge.announce`'s own response contains a queued id, since the
+  original failure mode the transition-wait was meant to catch (a
+  queued-but-never-played silent failure) was already fixed at its
+  actual source - the `get_url()` relative-URL correction in §4.6.
 - **No `select` entity for audio focus strategy** - `/audio-focus-strategy`
   (§3) is fully functional but curl/HTTP-only right now; a proper
   `select.py` platform (a real dropdown entity, `system` vs
