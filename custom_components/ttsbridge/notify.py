@@ -95,9 +95,26 @@ ATTR_ENGINE = "engine"
 ATTR_TTS_ENGINE = "tts_engine"
 ATTR_SPEAK_TIMEOUT = "speak_timeout"
 ATTR_CHIME = "chime"
+ATTR_CLEAR_QUEUE = "clear_queue"
 
 SERVICE_ANNOUNCE = "announce"
+SERVICE_CANCEL = "cancel"
+SERVICE_CHECK_CACHE = "check_cache"
 HA_TTS_ENTITY_PREFIX = "tts."
+
+CANCEL_SCHEMA = cv.make_entity_service_schema(
+    {
+        vol.Optional(ATTR_CLEAR_QUEUE, default=True): cv.boolean,
+    }
+)
+
+CHECK_CACHE_SCHEMA = cv.make_entity_service_schema(
+    {
+        vol.Required(ATTR_MESSAGE): cv.string,
+        vol.Required(ATTR_TTS_ENGINE): cv.entity_id,
+        vol.Optional(ATTR_CHIME): cv.string,
+    }
+)
 
 ANNOUNCE_SCHEMA = vol.All(
     cv.make_entity_service_schema(
@@ -133,6 +150,18 @@ async def async_setup_entry(
         ANNOUNCE_SCHEMA,
         "async_announce",
         supports_response=SupportsResponse.OPTIONAL,
+    )
+    platform.async_register_entity_service(
+        SERVICE_CANCEL,
+        CANCEL_SCHEMA,
+        "async_cancel",
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    platform.async_register_entity_service(
+        SERVICE_CHECK_CACHE,
+        CHECK_CACHE_SCHEMA,
+        "async_check_cache",
+        supports_response=SupportsResponse.ONLY,
     )
 
 
@@ -170,33 +199,78 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
         )
         cache_key = None
         if not url and message and ha_tts_target:
-            url = await self._async_resolve_ha_tts_url(ha_tts_target, message)
-            # Only safe to compute here: we resolved this url ourselves from
-            # (message, ha_tts_target), so we know identical inputs mean
-            # identical audio content - HA's own tts cache already guarantees
-            # that (see the persistent-cache design discussion). An
-            # explicitly-passed `url` (the branch below) carries no such
-            # guarantee, so it's deliberately left uncached rather than
-            # risking a stale clip being served for genuinely different audio.
-            #
-            # NOT the same as the url itself: HA's tts_proxy issues a fresh
-            # token per resolve even on its own cache hit, so this has to be
-            # derived from the (message, engine) pair instead, not the url.
+            # Same reasoning as always: only safe to compute a cache_key
+            # here because we're resolving this url ourselves from
+            # (message, ha_tts_target) - identical inputs mean identical
+            # audio content, guaranteed by HA's own tts cache. NOT the
+            # url itself: HA's tts_proxy issues a fresh token per resolve
+            # even on its own cache hit, so this has to be derived from
+            # the (message, engine) pair instead.
             cache_key = hashlib.sha256(
                 f"{message}|{ha_tts_target}".encode("utf-8")
             ).hexdigest()
 
-            # Same reasoning extends to the chime: only apply it where we
-            # already trust the cache key, for exactly the same reason. A
-            # given (message, engine, chime) still converges to one stable
-            # key - repeats of the same message with the same chime keep
-            # hitting cache exactly like before chimes existed. The key only
-            # changes if you actually swap the chime audio file itself,
-            # which is the correct, automatic invalidation - see chime.py.
+            chime_cache_key = None
             if chime_id:
-                url, cache_key = await chime.async_prepend_chime(
-                    self.hass, url, chime_id, cache_key
+                chime_cache_key = await chime.compute_chime_cache_key(
+                    self.hass, cache_key, chime_id
                 )
+
+            cached_url = None
+            if chime_cache_key:
+                cached_url = await chime.try_get_cached_url(self.hass, chime_cache_key)
+
+            if cached_url:
+                # Already rendered this exact (message, engine, chime)
+                # combination in a previous run - skip the HA TTS resolve
+                # entirely, which means skipping whatever it would have
+                # cost against the engine's quota. This is what makes a
+                # cleared config/tts (which, unlike this cache, HA appears
+                # to manage and can clear on its own) a non-event for
+                # anything that's ever been generated once.
+                url, cache_key = cached_url, chime_cache_key
+            else:
+                url = await self._async_resolve_ha_tts_url(ha_tts_target, message)
+
+                # Downloaded and checked exactly once here, then handed
+                # off to async_render (which takes over ownership of
+                # cleanup) whenever a chime actually applies, or cleaned
+                # up directly by us in the finally below when it
+                # doesn't - replaces two earlier, narrower attempts at
+                # this same coverage (one only handling chime_id being
+                # falsy, one relying solely on async_render's own
+                # internal check) that each independently downloaded and
+                # checked the same URL a second time on the path where a
+                # chime DOES apply.
+                try:
+                    speech_path = await chime.async_check_tts_url(
+                        self.hass, url, message, base_cache_key=cache_key
+                    )
+                except chime.PoisonedSynthesis as err:
+                    raise self._poisoned_synthesis_error(err, ha_tts_target) from err
+
+                try:
+                    if chime_id:
+                        if chime_cache_key:
+                            try:
+                                url, cache_key = await chime.async_render(
+                                    self.hass, url, chime_id, chime_cache_key,
+                                    speech_path=speech_path, message=message,
+                                    base_cache_key=cache_key,
+                                )
+                                speech_path = None  # async_render now owns cleanup
+                            except chime.PoisonedSynthesis as err:
+                                speech_path = None  # async_render's own finally already cleaned it up
+                                raise self._poisoned_synthesis_error(err, ha_tts_target) from err
+                        else:
+                            _LOGGER.warning(
+                                "chime='%s' could not be applied (see prior warning for why) - "
+                                "playing announcement without it",
+                                chime_id,
+                            )
+                finally:
+                    if speech_path:
+                        await chime.async_discard_temp(self.hass, speech_path)
         elif chime_id:
             _LOGGER.warning(
                 "chime='%s' requested but this announcement isn't going through an HA "
@@ -223,6 +297,67 @@ class TtsBridgeNotifyEntity(CoordinatorEntity[TtsBridgeCoordinator], NotifyEntit
             category=category,
             engine=engine,
             timeout_ms=timeout_ms,
+        )
+
+    async def async_cancel(self, **kwargs: Any) -> dict[str, Any]:
+        """ttsbridge.cancel entity service. Stops whatever's currently playing;
+        clear_queue (default True) also drops everything still queued behind
+        it, so a runaway batch of announcements doesn't keep working through
+        its backlog after you've asked it to stop."""
+        clear_queue = kwargs.get(ATTR_CLEAR_QUEUE, True)
+        result = await self._bridge.async_cancel(clear_queue=clear_queue)
+        _LOGGER.info("cancel result (clear_queue=%s): %s", clear_queue, result)
+        return result
+
+    async def async_check_cache(self, **kwargs: Any) -> dict[str, Any]:
+        """ttsbridge.check_cache entity service. Answers 'is this exact
+        (message, tts_engine, chime) combination already cached?' without
+        ever calling the engine - same hashing chime.compute_chime_cache_key
+        / chime.try_get_cached_url that async_announce uses internally, just
+        stopped before the resolve step rather than falling through to it.
+
+        This exists because a caller (e.g. tts_announce trying both a raw
+        SSML and a tag-stripped variant of the same message, preferring
+        whichever's already cached) can't safely "try announce and see if it
+        was a cache hit" - a miss there has *already* triggered a real,
+        quota-costing synthesis as a side effect by the time you'd know.
+        This lets that decision happen first, for free.
+
+        Returns {"cached": False} on any miss - unknown engine, no chime
+        asset, whatever. Only {"cached": True, "url": ...} is a real hit.
+        """
+        message = kwargs[ATTR_MESSAGE]
+        ha_tts_target = kwargs[ATTR_TTS_ENGINE]
+        chime_id = kwargs.get(ATTR_CHIME)
+
+        cache_key = hashlib.sha256(f"{message}|{ha_tts_target}".encode("utf-8")).hexdigest()
+
+        if not chime_id:
+            # No chime support outside the chime path - see chime.py's
+            # module docstring for why this stays scoped tight. Nothing to
+            # check.
+            return {"cached": False}
+
+        chime_cache_key = await chime.compute_chime_cache_key(self.hass, cache_key, chime_id)
+        if not chime_cache_key:
+            return {"cached": False}
+
+        cached_url = await chime.try_get_cached_url(self.hass, chime_cache_key)
+        if not cached_url:
+            return {"cached": False}
+
+        return {"cached": True, "url": cached_url}
+
+    @staticmethod
+    def _poisoned_synthesis_error(err: "chime.PoisonedSynthesis", ha_tts_target: str) -> HomeAssistantError:
+        """Shared by both call sites that catch chime.PoisonedSynthesis (the
+        chime path in async_render, and the no-chime path via
+        async_check_tts_url) - keeps the two error messages identical
+        without duplicating the wording in two places that could drift
+        apart from each other over time."""
+        return HomeAssistantError(
+            f"Homeway returned a known-degraded response for '{ha_tts_target}' "
+            f"(signature {err.signature}: {err.label}) - refusing to play or cache it"
         )
 
     async def _async_resolve_ha_tts_url(self, engine_entity_id: str, message: str) -> str:

@@ -35,8 +35,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import BridgeApiClient, BridgeApiError, BridgeConnectionError
 from .const import (
+    CONF_DEGRADED_RESPONSE_DETECTION_ENABLED,
     CONF_MEDIA_PLAYER_ENTITY_ID,
     CONF_TRIGGER_ENTITY_ID,
+    DEFAULT_DEGRADED_RESPONSE_DETECTION_ENABLED,
     DEFAULT_PORT,
     DOMAIN,
 )
@@ -104,6 +106,16 @@ def _setup_automations_schema(
     )
 
 
+def _options_schema(current: bool) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_DEGRADED_RESPONSE_DETECTION_ENABLED, default=current
+            ): bool,
+        }
+    )
+
+
 async def _validate_connection(hass, host: str, port: int) -> None:
     """Raise BridgeConnectionError/BridgeApiError if the bridge isn't reachable."""
     session = async_get_clientsession(hass)
@@ -116,6 +128,10 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for TTS Bridge."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> "TtsBridgeOptionsFlow":
+        return TtsBridgeOptionsFlow()
 
     def __init__(self) -> None:
         self._host: str | None = None
@@ -266,5 +282,34 @@ class TtsBridgeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=_schema(entry.data),
             errors=errors,
+        )
+
+
+class TtsBridgeOptionsFlow(config_entries.OptionsFlow):
+    """Single-step options flow: on/off for degraded-response detection.
+
+    No __init__ override, deliberately - the previous version explicitly
+    set self.config_entry = config_entry in __init__, which was the
+    correct pattern on older HA but is now either deprecated (warns) or
+    outright broken (hard error - a hard error is what actually happened
+    here on the first attempt) depending on version, since self.config_entry
+    is auto-populated by the base OptionsFlow class as of current-generation
+    HA. This version relies entirely on that auto-population - no explicit
+    assignment at all, which works correctly across both the old
+    (auto-population + a redundant manual set, harmless) and new (manual
+    set actively broken) API surfaces.
+    """
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        current = self.config_entry.options.get(
+            CONF_DEGRADED_RESPONSE_DETECTION_ENABLED,
+            DEFAULT_DEGRADED_RESPONSE_DETECTION_ENABLED,
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=_options_schema(current),
         )
 

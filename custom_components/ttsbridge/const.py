@@ -33,3 +33,20 @@ DEFAULT_CATEGORY = "general"
 # Same request-timeout budget used on the HA-side rest_command version of
 # this integration - kept for continuity, not a hard technical requirement.
 REQUEST_TIMEOUT_SECONDS = 10
+
+# Options-flow key (entry.options, not entry.data - user-editable after
+# setup via Settings > Devices & Services > TTS Bridge > Configure,
+# without needing to delete/re-add the integration). Governs whether
+# chime.py's degraded-response detection (known_bad_signatures.json
+# matching, auto collision detection, poison-generation cache-busting -
+# see docs/investigation-cache-poisoning.md) runs at all. Defaults to
+# True - the mechanism is generic (works for any TTS engine's audio, not
+# specific to any one provider) and effectively free when idle (only
+# runs on a genuine cache miss, refuses only on provable repeats of
+# previously-seen wrong content), so most users benefit from leaving it
+# on without ever needing to know it exists. Exposed as a real toggle
+# rather than baked in permanently for the minority who want the
+# simpler, original behavior - for debugging, auditability, or just not
+# wanting the extra complexity regardless of cost.
+CONF_DEGRADED_RESPONSE_DETECTION_ENABLED = "degraded_response_detection_enabled"
+DEFAULT_DEGRADED_RESPONSE_DETECTION_ENABLED = True

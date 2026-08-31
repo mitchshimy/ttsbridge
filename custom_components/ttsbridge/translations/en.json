@@ -44,5 +44,16 @@
       "already_configured": "This TTS Bridge is already configured.",
       "reconfigure_successful": "Reconfiguration successful."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "TTS Bridge Options",
+        "description": "Controls whether this integration checks synthesized audio against known degraded/quota-limit responses before caching or playing it. Generic - not specific to any one TTS engine - and effectively free when idle (only runs on a genuine cache miss). Turn off to restore the original, simpler behavior.",
+        "data": {
+          "degraded_response_detection_enabled": "Enable degraded-response detection"
+        }
+      }
+    }
   }
 }
