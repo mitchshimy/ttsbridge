@@ -82,3 +82,62 @@ announce:
           min: 1000
           max: 120000
           unit_of_measurement: ms
+
+cancel:
+  name: Cancel
+  description: >-
+    Stop whatever this bridge device is currently playing. With clear_queue
+    (the default), also drops everything still queued behind it - use this
+    to actually halt a runaway batch of announcements, since stopping an
+    automation or script that's feeding announce calls only stops it from
+    queuing *new* ones; anything already queued keeps playing on its own
+    until this is called.
+  target:
+    entity:
+      domain: notify
+      integration: ttsbridge
+  fields:
+    clear_queue:
+      name: Clear queue
+      description: >-
+        If true (default), also discard everything still waiting to play,
+        not just the current announcement.
+      default: true
+      selector:
+        boolean:
+
+check_cache:
+  name: Check cache
+  description: >-
+    Look up whether this exact (message, tts_engine, chime) combination is
+    already cached, WITHOUT calling the engine or costing any quota either
+    way. Returns cached: true/false, and a url when true. Use this to
+    decide what to actually announce - e.g. check a raw SSML version, then
+    a plain-text version, and only fall through to a real announce (which
+    will cost quota on a miss) if neither is already cached.
+  target:
+    entity:
+      domain: notify
+      integration: ttsbridge
+  fields:
+    message:
+      name: Message
+      description: The exact message text to check (must match verbatim - SSML tags included/excluded matters).
+      required: true
+      selector:
+        text:
+    tts_engine:
+      name: TTS engine
+      description: The tts.* entity this would be rendered through.
+      required: true
+      selector:
+        entity:
+          domain: tts
+    chime:
+      name: Chime
+      description: >-
+        Chime id, matching what a real announce call would use. Required
+        to get a real answer - without it this always returns cached=false,
+        since chimes are the only cache this checks.
+      selector:
+        text:

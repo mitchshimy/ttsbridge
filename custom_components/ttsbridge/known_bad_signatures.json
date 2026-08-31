@@ -1,0 +1,10 @@
+{
+  "_comment": "Speech-only PCM MD5 hashes of known degraded/quota-limit Homeway responses. Confirmed entries were captured directly from HA's own config/tts cache (pre-chime, exactly what the runtime check hashes) - no trimming/derivation needed for these. Add more the same way: pull the raw file straight from config/tts right after reproducing a limit-hit, before it gets cleared.",
+
+  "765f2f69cde8b0422c2c8f1ab7fa07a1": "Homeway limit/quota response, variant A - 9.78s, confirmed via 7 independent config/tts captures across ja-jp/sk-sk/af-za tags (with and without chime, different TTS categories)",
+  "5d24f381d523c595652a493a365c66a8": "Homeway limit/quota response, variant B - 8.22s, distinct from variant A (different duration/hash, not just another locale-tag rotation), captured es-ar tagged",
+  "3b524eea5924e92812381e2435dfb1d3": "Homeway limit/quota response, variant C - 7.56s, distinct from variants A and B, captured es-hn tagged",
+  "6768eab355a6021f8e97df01f78b0c0a": "Homeway limit/quota response, variant D - 2.91s, notably shorter than variants A/B/C, captured es-bo tagged",
+  "83df8dfcb62d0a93649fd51a8cc3c529": "Homeway limit/quota response, variant E - ~3.27s speech (4.31s combined with chime), found manually in the durable ttsbridge_chimes_cache rather than captured from config/tts - no locale tag available for this one",
+  "de8e166d9063abd395868ec0bc8d6f62": "Homeway limit/quota response, variant F - 3.84s, captured tr-tr tagged immediately after deleting variant E's poisoned cache entry and re-resolving the same message fresh"
+}

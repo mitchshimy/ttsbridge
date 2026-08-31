@@ -580,6 +580,21 @@ connection itself:
    trying to open a URI that was never valid, well after HA had already
    declared victory.
 
+   **A second, more serious gotcha, found later**: a "successful" resolve
+   here doesn't guarantee correct audio. When Homeway is over quota, it
+   doesn't error - `async_resolve_media()` still returns a valid URL,
+   pointing at a canned degraded/limit clip indistinguishable from real
+   synthesis by anything that isn't listening to the actual audio. Since
+   the chime-cache write in `chime.async_render` is otherwise
+   unconditional on the resolve "succeeding," this could silently and
+   *permanently* poison a cache entry - every future request for that
+   exact message would keep serving the wrong clip forever, quota
+   available again or not. Fixed via content-hash detection
+   (`known_bad_signatures.json`, checked in `chime.py` before anything is
+   ever written to the durable cache) - full writeup, including how the
+   poisoning was found and how to register a newly-discovered degraded
+   response, in `docs/investigation-cache-poisoning.md`.
+
 **Events fired** (not entities, but real HA events - triggerable from
 automations via `trigger: event`):
 - `ttsbridge_recovery_needed` - `{entry_id}`, re-fires every 150s while down.
@@ -735,6 +750,17 @@ file or one written by hand before this feature existed.
 - **`RemoteHttpTtsProvider` has no auth/header support** - fine for a
   bare self-hosted server, would need extending before pointing it at any
   cloud TTS API that requires an API key in the request.
+- **Degraded-response detection is reactive, not predictive** - the
+  `known_bad_signatures.json` content-hash check (§4.6, full writeup in
+  `docs/investigation-cache-poisoning.md`) only catches a degraded
+  Homeway response it has already seen and had registered at least once.
+  A genuinely new failure clip plays and potentially gets cached exactly
+  once before anyone notices and adds its signature. Catching a
+  first-ever occurrence of an unknown variant would need a structurally
+  different approach (e.g. a heuristic on resolve timing or expected
+  language/voice profile) - judged out of scope given how consistently a
+  single clip reproduced across every trigger tested during the
+  investigation (seven independent captures, one signature).
 
 ---
 

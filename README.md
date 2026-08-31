@@ -76,6 +76,12 @@ docs/
                           initial writeup misdiagnosed it as unfixable TCL
                           firmware; investigation-dialogue-loss-
                           resolution.md has the actual root cause and fix
+  investigation-cache-poisoning.md
+                          How a degraded Homeway response (returned as a
+                          "successful" resolve, not an error) could
+                          silently and permanently poison a cache entry,
+                          and the content-signature detection system
+                          built to catch and refuse it going forward
 ```
 
 **Start with the setup guide if you just want this running.** The

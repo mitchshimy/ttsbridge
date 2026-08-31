@@ -35,5 +35,11 @@ class AnnouncementBridge:
     async def async_announce_text(self, text: str, **kwargs: Any) -> dict[str, Any]:
         return await self._api.announce_text(text, **kwargs)
 
+    async def async_cancel(self, clear_queue: bool = False) -> dict[str, Any]:
+        """Stop whatever's currently playing; optionally also drop everything
+        still queued behind it. See BridgeApiClient.cancel / the device's own
+        POST /stop?clear=true endpoint."""
+        return await self._api.cancel(clear_queue=clear_queue)
+
     async def async_register_webhook(self, url: str) -> dict[str, Any]:
         return await self._api.register_webhook(url)
